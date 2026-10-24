@@ -1,0 +1,17 @@
+node_modules/
+dist/
+*.log
+.env
+.env.*
+!.env.example
+
+# SQLite database files
+backend/data/
+
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+
+# Deployment CLIs
+.vercel

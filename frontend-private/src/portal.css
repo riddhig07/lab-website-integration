@@ -1,0 +1,358 @@
+/* Portal styles. This app is separate from the public site and shares none of
+   its CSS. */
+:root {
+  color-scheme: light dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font: 16px/1.6 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+.portal .muted {
+  color: var(--muted);
+}
+
+.portal {
+  --bg: #f5f6f8;
+  --panel: #ffffff;
+  --fg: #1d2330;
+  --muted: #5f6b7a;
+  --border: #dfe3e8;
+  --accent: #1f5fa8;
+  --accent-fg: #ffffff;
+  --danger: #b42318;
+
+  flex: 1;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+@media (prefers-color-scheme: dark) {
+  .portal {
+    --bg: #0f1318;
+    --panel: #171c23;
+    --fg: #e6e9ee;
+    --muted: #9aa5b3;
+    --border: #2a313b;
+    --accent: #5b9be0;
+    --accent-fg: #0f1318;
+    --danger: #f97066;
+  }
+}
+
+.portal h1 {
+  margin: 0 0 0.25rem;
+  font-size: 1.6rem;
+}
+
+.portal .small {
+  font-size: 0.85rem;
+}
+
+.portal .error {
+  color: var(--danger);
+}
+
+.portal .center {
+  text-align: center;
+  padding: 3rem;
+}
+
+/* Buttons & inputs */
+.portal button,
+.portal a.button {
+  font: inherit;
+  cursor: pointer;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--accent-fg);
+  padding: 0.45rem 0.9rem;
+  border-radius: 6px;
+}
+
+.portal button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.portal button.secondary {
+  background: transparent;
+  color: var(--fg);
+  border-color: var(--border);
+}
+
+.portal button.link {
+  background: none;
+  border: none;
+  padding: 0.25rem 0.4rem;
+  color: var(--accent);
+}
+
+.portal button.link.danger {
+  color: var(--danger);
+}
+
+.portal input,
+.portal textarea,
+.portal select {
+  font: inherit;
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--fg);
+}
+
+.portal textarea {
+  resize: vertical;
+}
+
+.portal .field {
+  margin-bottom: 0.9rem;
+}
+
+.portal .field label {
+  display: block;
+  font-weight: 500;
+  margin-bottom: 0.25rem;
+}
+
+.portal .required {
+  color: var(--danger);
+}
+
+.portal .checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.9rem;
+}
+
+.portal .checkbox input {
+  width: auto;
+}
+
+/* Shell */
+.portal .shell {
+  display: flex;
+  min-height: 100vh;
+}
+
+.portal .sidebar {
+  width: 240px;
+  flex-shrink: 0;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  padding: 1.25rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.portal .sidebar .brand {
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+
+.portal .sidebar nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.portal .sidebar nav a {
+  color: var(--fg);
+  text-decoration: none;
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+}
+
+.portal .sidebar nav a:hover,
+.portal .sidebar nav a.active {
+  background: var(--bg);
+}
+
+.portal .sidebar nav a.active {
+  font-weight: 600;
+}
+
+.portal .nav-heading {
+  margin-top: 0.75rem;
+  padding: 0 0.6rem;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.portal .sidebar-footer {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.portal .content {
+  flex: 1;
+  min-width: 0;
+  padding: 2rem;
+  max-width: 1100px;
+}
+
+@media (max-width: 720px) {
+  .portal .shell {
+    flex-direction: column;
+  }
+
+  .portal .sidebar {
+    width: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .portal .content {
+    padding: 1.25rem 1rem;
+  }
+}
+
+/* Dashboard */
+.portal .stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.portal .stat {
+  display: block;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  color: var(--fg);
+  text-decoration: none;
+}
+
+.portal .stat:hover {
+  border-color: var(--accent);
+}
+
+.portal .stat-value {
+  font-size: 1.8rem;
+  font-weight: 700;
+}
+
+.portal .stat-label {
+  font-weight: 600;
+}
+
+/* Resource pages */
+.portal .page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.portal .page-header p {
+  margin: 0;
+}
+
+.portal .record-form {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1.25rem;
+  margin-bottom: 1.5rem;
+  max-width: 640px;
+}
+
+.portal .record-form h2 {
+  margin-top: 0;
+  font-size: 1.15rem;
+}
+
+.portal .actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.portal .table-wrap {
+  overflow-x: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.portal table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.portal th,
+.portal td {
+  text-align: left;
+  padding: 0.6rem 0.9rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.portal tr:last-child td {
+  border-bottom: none;
+}
+
+.portal th {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.portal .row-actions {
+  white-space: nowrap;
+  text-align: right;
+}
+
+/* Login */
+.portal .login-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+}
+
+.portal .login-card {
+  width: 100%;
+  max-width: 360px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 2rem;
+}
+
+.portal .login-card button[type='submit'] {
+  width: 100%;
+}
+
+.portal a.button {
+  display: block;
+  text-align: center;
+  text-decoration: none;
+}
+
+.portal .divider {
+  margin: 1rem 0 0.25rem;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.85rem;
+}

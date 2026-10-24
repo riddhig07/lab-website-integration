@@ -1,0 +1,25 @@
+{
+  "name": "lab-website",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "frontend-private",
+    "backend"
+  ],
+  "scripts": {
+    "dev": "concurrently -n backend,public,private -c blue,green,magenta \"npm run dev -w backend\" \"npm run dev -w frontend\" \"npm run dev -w frontend-private\"",
+    "seed": "npm run seed -w backend",
+    "build": "npm run build -w frontend && npm run build -w frontend-private",
+    "typecheck": "npm run typecheck -w backend && npm run typecheck -w frontend && npm run typecheck -w frontend-private",
+    "build:web": "npm run build && node scripts/assemble-web.mjs",
+    "deploy:web": "npm run build:web && npx vercel@65.2.0 deploy dist --prod --yes --project lab-website",
+    "deploy:api": "railway up --service api --ci"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "railway": "^3.16.0"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}

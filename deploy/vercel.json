@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "https://api-production-73098.up.railway.app/api/:path*" },
+    { "source": "/portal", "destination": "/portal/index.html" },
+    { "source": "/portal/:path*", "destination": "/portal/index.html" },
+    { "source": "/:path*", "destination": "/index.html" }
+  ]
+}
