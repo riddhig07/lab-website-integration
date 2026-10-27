@@ -1,6 +1,7 @@
 import { Route, Routes } from 'react-router';
 import { AuthProvider, RequireAuth } from './auth';
 import { Dashboard } from './Dashboard';
+import { DrivePage } from './DrivePage';
 import { Layout } from './Layout';
 import { Login } from './Login';
 import { ResourcePage } from './ResourcePage';
@@ -21,6 +22,8 @@ export function App() {
             }
           >
             <Route index element={<Dashboard />} />
+            <Route path="drive" element={<DrivePage />} />
+            <Route path="drive/:folderId" element={<DrivePage />} />
             <Route path=":key" element={<ResourcePage />} />
           </Route>
         </Routes>

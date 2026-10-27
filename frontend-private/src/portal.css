@@ -83,13 +83,15 @@ body {
   cursor: default;
 }
 
-.portal button.secondary {
+.portal button.secondary,
+.portal a.button.secondary {
   background: transparent;
   color: var(--fg);
   border-color: var(--border);
 }
 
-.portal button.link {
+.portal button.link,
+.portal a.link {
   background: none;
   border: none;
   padding: 0.25rem 0.4rem;
@@ -355,4 +357,110 @@ body {
   text-align: center;
   color: var(--muted);
   font-size: 0.85rem;
+}
+
+.portal a.link {
+  display: inline-block;
+  text-decoration: none;
+}
+
+/* Lab Drive explorer */
+.portal .drive {
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) 1fr;
+  gap: 1.25rem;
+  align-items: start;
+}
+
+@media (max-width: 800px) {
+  .portal .drive {
+    grid-template-columns: 1fr;
+  }
+}
+
+.portal .drive-tree {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.portal .tree-row {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.portal .tree-row.active {
+  background: var(--bg);
+  font-weight: 600;
+}
+
+.portal .tree-row a {
+  color: var(--fg);
+  text-decoration: none;
+  padding: 0.25rem 0.3rem;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.portal .tree-toggle {
+  background: none;
+  border: none;
+  color: var(--muted);
+  width: 1.4rem;
+  padding: 0.2rem 0;
+  flex: none;
+}
+
+.portal .tree-toggle:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.portal .tree-children {
+  margin-left: 0.9rem;
+  border-left: 1px solid var(--border);
+  padding-left: 0.2rem;
+}
+
+.portal .drive-main {
+  min-width: 0;
+}
+
+.portal .drive-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.portal .drive-toolbar input {
+  width: 14rem;
+  max-width: 100%;
+}
+
+.portal .breadcrumbs {
+  overflow-wrap: anywhere;
+}
+
+.portal .drive-name {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.portal .drive-name img {
+  flex: none;
+}
+
+.portal .page-header a.button {
+  white-space: nowrap;
 }

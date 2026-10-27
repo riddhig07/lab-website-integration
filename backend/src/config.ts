@@ -20,6 +20,13 @@ export const config = {
     memberIds: idList(env.GITHUB_MEMBER_IDS),
     adminIds: idList(env.GITHUB_ADMIN_IDS),
   },
+  google: {
+    // Base64 of the service account's JSON key.
+    serviceAccountKey: env.GOOGLE_SERVICE_ACCOUNT_KEY?.trim() ?? '',
+    // The lab's Drive folder, shown in the portal's file explorer. The
+    // service account must have access to it.
+    driveFolderId: env.GOOGLE_DRIVE_FOLDER_ID?.trim() ?? '',
+  },
 };
 
 function idList(value: string | undefined): Set<string> {

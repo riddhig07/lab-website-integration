@@ -3,6 +3,7 @@ import { requireAuth } from '../auth/session';
 import { db } from '../db';
 import { RESOURCE_DEFS, type ResourceKey } from '../resources';
 import { crudRouter } from './crud';
+import { driveRouter } from './drive';
 
 const ORDER_BY: Record<ResourceKey, string> = {
   people: 'sort_order, name',
@@ -27,6 +28,8 @@ internalRouter.get('/stats', (_req, res) => {
   }
   res.json(counts);
 });
+
+internalRouter.use('/drive', driveRouter);
 
 for (const key of Object.keys(RESOURCE_DEFS) as ResourceKey[]) {
   internalRouter.use(`/${key}`, crudRouter(RESOURCE_DEFS[key], ORDER_BY[key]));

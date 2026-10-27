@@ -35,3 +35,23 @@ export interface ResourceDef {
   fields: FieldDef[];
   listColumns: string[];
 }
+
+// Lab Drive (GET /api/internal/drive/folders/:id)
+export interface DriveItem {
+  id: string;
+  name: string;
+  mimeType: string;
+  isFolder: boolean;
+  size: number | null;
+  modifiedTime: string;
+  iconLink: string | null;
+  webViewLink: string | null;
+  /** For shortcuts: the id of the file they point to. */
+  targetId: string | null;
+}
+
+export interface DriveFolder {
+  /** From the lab folder down to this folder. */
+  path: { id: string; name: string }[];
+  items: DriveItem[];
+}

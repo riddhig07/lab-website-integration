@@ -41,6 +41,7 @@ export function Layout() {
           </NavLink>
           {defs && navGroup('Public content', defs.filter((d) => d.public))}
           {defs && navGroup('Internal', defs.filter((d) => !d.public))}
+          <NavLink to="/drive">Lab Drive</NavLink>
         </nav>
         <div className="sidebar-footer">
           <a href="/">View public site</a>

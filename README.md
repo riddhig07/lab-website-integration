@@ -7,7 +7,7 @@ backend/            Express + SQLite API (/api)
 ```
 
 - **Public site** (`frontend/src/public`): home, research, people, publications, news, contact. Reads `/api/public/*` only and contains no portal code.
-- **Members portal** (`frontend-private/src`): sign-in-only app served at `/portal` for managing site content and internal resources. Built and deployed separately from the public site. Calls `/api/internal/*`, which requires a session.
+- **Members portal** (`frontend-private/src`): sign-in-only app served at `/portal` for managing site content and internal resources. Built and deployed separately from the public site. Calls `/api/internal/*`, which requires a session. Includes **Lab Drive** (`/portal/drive`), a read-only explorer for the lab's Google Drive folder: folder tree, breadcrumbs, filter, and downloads (Google Docs/Sheets/Slides export to .docx/.xlsx/.pptx) served through the backend, so they work for every portal member, whether or not they have access to the folder in Google Drive.
 - **Backend** (`backend/src`):
   - `routes/public.ts`: unauthenticated, returns only public rows/columns
   - `routes/auth.ts`: login / logout / current user (httpOnly cookie sessions)
@@ -67,6 +67,23 @@ The GitHub OAuth app ("SHERP Lab Website") is owned by the org: https://github.c
 Secrets (`GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`) are set with `railway variables --service api --set ...`, never in the repo. `preserve()` in `.railway/railway.ts` keeps them on apply.
 
 On Windows with Git Bash, `railway config` can fail with "requires Railway CLI 5.42.1 or newer" even on a newer CLI: the SDK runs the CLI from the `_` variable, which Git Bash sets to a path Node can't execute. Run it from PowerShell, or call the CLI's `railway.exe` directly with `_` set to that same path.
+
+## Integrations
+
+Credentials the backend can use, all stored as Railway variables on the `api` service (secrets via `railway variable set NAME --stdin`, never in the repo; ids in `.railway/railway.ts`). The portal's Lab Drive page uses the Google service account; the GitHub App and Slack bot aren't used by any feature yet.
+
+| Service | What | Access | Manage at |
+| --- | --- | --- | --- |
+| GitHub | App "SHERP Lab Intranet" (id 5457822), installed on all `S-H-E-R-P-AI-Lab` repos | Read contents, metadata, PRs and org members; read/write issues and org projects | https://github.com/organizations/S-H-E-R-P-AI-Lab/settings/apps/sherp-lab-intranet |
+| GitHub | OAuth app "SHERP Lab Website" (portal sign-in) | Public profile + `read:org` per user | https://github.com/organizations/S-H-E-R-P-AI-Lab/settings/applications/3961042 |
+| Slack | App "SHERP Lab Website" in the PicarX Research workspace | Bot: `channels:read`, `channels:history`, `chat:write`, `users:read`, `files:read`. Invite `@SHERP Lab Website` to a channel before reading its history | https://api.slack.com/apps/A0CBUCB5GBY |
+| Google | Service account `lab-website@sherp-lab-website.iam.gserviceaccount.com` (Cloud project `sherp-lab-website` under ucsc.edu; Drive, Docs and Calendar APIs enabled) | Only what is shared with it (read-only): the "Nath Lab" Drive folder, shown in the portal's Lab Drive page (`GOOGLE_DRIVE_FOLDER_ID`), plus an empty test folder "SHERP Lab Website". Share more folders or calendars with that address to give it access | https://console.cloud.google.com/iam-admin/serviceaccounts?project=sherp-lab-website |
+
+To rotate a key, create a new one at the link above, set it on Railway, redeploy, then delete the old one.
+
+**Local development** (`backend/.env`, gitignored) has working values for all of these. Portal sign-in uses a separate OAuth app, "SHERP Lab Website (local dev)" (https://github.com/organizations/S-H-E-R-P-AI-Lab/settings/applications/3961157), whose only callback is `http://localhost:5180/api/auth/github/callback`. The GitHub App and the Google service account each have a second key used only locally, so either environment's key can be revoked without breaking the other. The Slack bot token and signing secret are the same as production: Slack issues one per workspace install.
+
+**For Claude Code** (`.mcp.json`): `github` (GitHub's hosted MCP server; needs a `GITHUB_PAT` environment variable holding a GitHub token) and `railway` (sign in with `/mcp`). Google Drive, Calendar and Gmail come from claude.ai connectors, as does Slack once connected at https://claude.ai/settings/connectors.
 
 ## Next steps
 
