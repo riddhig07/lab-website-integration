@@ -4,6 +4,8 @@ import { db } from '../db';
 import { RESOURCE_DEFS, type ResourceKey } from '../resources';
 import { crudRouter } from './crud';
 import { driveRouter } from './drive';
+import { githubRouter } from './github';
+import { trackerRouter } from './tracker';
 
 const ORDER_BY: Record<ResourceKey, string> = {
   people: 'sort_order, name',
@@ -30,6 +32,8 @@ internalRouter.get('/stats', (_req, res) => {
 });
 
 internalRouter.use('/drive', driveRouter);
+internalRouter.use('/github', githubRouter);
+internalRouter.use('/tracker', trackerRouter);
 
 for (const key of Object.keys(RESOURCE_DEFS) as ResourceKey[]) {
   internalRouter.use(`/${key}`, crudRouter(RESOURCE_DEFS[key], ORDER_BY[key]));

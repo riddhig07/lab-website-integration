@@ -7,11 +7,13 @@ backend/            Express + SQLite API (/api)
 ```
 
 - **Public site** (`frontend/src/public`): home, research, people, publications, news, contact. Reads `/api/public/*` only and contains no portal code.
-- **Members portal** (`frontend-private/src`): sign-in-only app served at `/portal` for managing site content and internal resources. Built and deployed separately from the public site. Calls `/api/internal/*`, which requires a session. Includes **Lab Drive** (`/portal/drive`), a read-only explorer for the lab's Google Drive folder: folder tree, breadcrumbs, filter, and downloads (Google Docs/Sheets/Slides export to .docx/.xlsx/.pptx) served through the backend, so they work for every portal member, whether or not they have access to the folder in Google Drive.
+- **Members portal** (`frontend-private/src`): sign-in-only app served at `/portal` for managing site content and internal resources. Built and deployed separately from the public site. Calls `/api/internal/*`, which requires a session. Includes **Lab Drive** (`/portal/drive`), a read-only explorer for the lab's Google Drive folder: folder tree, breadcrumbs, filter, and downloads (Google Docs/Sheets/Slides export to .docx/.xlsx/.pptx) served through the backend, so they work for every portal member, whether or not they have access to the folder in Google Drive. Also **Repositories** (`/portal/repos`) and the **Task Board** (`/portal/tracker`), described below.
 - **Backend** (`backend/src`):
   - `routes/public.ts`: unauthenticated, returns only public rows/columns
   - `routes/auth.ts`: login / logout / current user (httpOnly cookie sessions)
-  - `routes/internal.ts`: authenticated CRUD for every content type
+  - `routes/internal.ts`: authenticated CRUD for every content type, plus the Drive, GitHub and tracker routers
+  - `github/`: the GitHub App client (`app.ts`) and cached repo / issue / commit reads (`repos.ts`)
+  - `tracker/`: the task board: tasks, sprints, planning, GitHub sync and stats; `slack/` and `ai/` hold its Slack posts and assistant; `jobs.ts` runs its background work
   - `resources.ts`: content type definitions (fields, labels, validation); the portal builds its forms from these
   - `schema.ts`: SQLite tables
   - `seed.ts`: creates the first admin and sample content
@@ -70,7 +72,7 @@ On Windows with Git Bash, `railway config` can fail with "requires Railway CLI 5
 
 ## Integrations
 
-Credentials the backend can use, all stored as Railway variables on the `api` service (secrets via `railway variable set NAME --stdin`, never in the repo; ids in `.railway/railway.ts`). The portal's Lab Drive page uses the Google service account; the GitHub App and Slack bot aren't used by any feature yet.
+Credentials the backend can use, all stored as Railway variables on the `api` service (secrets via `railway variable set NAME --stdin`, never in the repo; ids in `.railway/railway.ts`). The portal's Lab Drive page uses the Google service account; the Repositories pages and the Task Board use the GitHub App; the Task Board's weekly posts use the Slack bot (once `SLACK_TRACKER_CHANNEL_ID` is set) and its assistant uses `GEMINI_API_KEY` (a Google AI Studio key; the assistant is hidden until it's set).
 
 | Service | What | Access | Manage at |
 | --- | --- | --- | --- |
@@ -84,6 +86,21 @@ To rotate a key, create a new one at the link above, set it on Railway, redeploy
 **Local development** (`backend/.env`, gitignored) has working values for all of these. Portal sign-in uses a separate OAuth app, "SHERP Lab Website (local dev)" (https://github.com/organizations/S-H-E-R-P-AI-Lab/settings/applications/3961157), whose only callback is `http://localhost:5180/api/auth/github/callback`. The GitHub App and the Google service account each have a second key used only locally, so either environment's key can be revoked without breaking the other. The Slack bot token and signing secret are the same as production: Slack issues one per workspace install.
 
 **For Claude Code** (`.mcp.json`): `github` (GitHub's hosted MCP server; needs a `GITHUB_PAT` environment variable holding a GitHub token) and `railway` (sign in with `/mcp`). Google Drive, Calendar and Gmail come from claude.ai connectors, as does Slack once connected at https://claude.ai/settings/connectors.
+
+## Repositories and the Task Board
+
+**Repositories** (`/portal/repos`) lists every repo the GitHub App is installed on, the open issues and pull requests across the org, and per repo its issues, PRs, commits, branches, contributors and weekly activity. Members can comment on, close and reopen issues; the App posts them and signs each with the member's username.
+
+**Task Board** (`/portal/tracker`) is the lab's work tracker, modelled on SmartBrowse's story tracker:
+
+- **Team:** everyone in the GitHub org, added by the sync. Set each person's role and Slack member id under "Edit member". Admins can deactivate people.
+- **Tasks:** an assignee (GitHub login), type, priority (P0–P4), status, scope (1–5), a PM note, subtasks (each can be handed to someone else, which puts the task on their row too) and progress updates. Done tasks can be archived. Any member can create and edit tasks; only admins delete them.
+- **Board:** a row per person and a column per status. Drag cards between columns to change status, or onto someone else's row to reassign. The status dropdown on each card does the same without dragging.
+- **Sprints:** weekly, Saturday 11:00 to Saturday 11:00 (`TRACKER_TIMEZONE`). At the start of each sprint everyone gets a wrap-up of their last one and picks what to carry over, pull from the backlog or add. The Sprints tab shows each sprint's scorecard, burn-up and per-person progress; closed sprints keep the summary frozen at close.
+- **GitHub:** every 10 minutes (and on "Sync from GitHub") the backend reads recent commits on every branch of every repo. A commit links to a task when its message contains the task's ref (`T-12`), the `#number` of an issue or PR linked to the task (same repo), or the task's whole title (code tasks only). Pills show merged vs on-branch commits. Link issues and PRs from the task dialog, or create an issue from a task. **Closing a linked issue marks its task done.** From an issue page, "Track as task" creates a linked task.
+- **Overall:** commits and lines added/removed per week across the org, plus contributors.
+- **Slack** (when `SLACK_TRACKER_CHANNEL_ID` is set): Wednesday 09:00 check-in in the channel, Saturday 11:00 sprint recap, and a DM (Wednesday and Friday) to members with a Slack id who haven't posted an update yet. Set `SLACK_DRY_RUN=1` to log them instead.
+- **Assistant** (when `GEMINI_API_KEY` is set): "✨ Ask Gemini" answers questions about tasks, sprints and GitHub, and can create and update tasks as the signed-in member.
 
 ## Next steps
 

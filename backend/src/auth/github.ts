@@ -105,7 +105,7 @@ export async function fetchOrgRole(token: string): Promise<Role | null> {
   return membership.role === 'admin' ? 'admin' : 'member';
 }
 
-function githubHeaders(token: string): Record<string, string> {
+export function githubHeaders(token: string): Record<string, string> {
   return {
     Accept: 'application/vnd.github+json',
     Authorization: `Bearer ${token}`,
