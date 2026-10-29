@@ -211,3 +211,82 @@ export async function download(id: string): Promise<Download> {
     body: res.body!,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Search and reading, for the portal's assistant
+
+/** Files and folders in the lab folder whose name or text matches `query`. */
+export async function searchDrive(query: string, limit = 25): Promise<(DriveItem & { path: string })[]> {
+  const q = query.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  const res = await drive('files', {
+    q: `(name contains '${q}' or fullText contains '${q}') and trashed = false`,
+    fields: `files(${FILE_FIELDS})`,
+    pageSize: '100',
+    corpora: 'allDrives',
+    includeItemsFromAllDrives: 'true',
+  });
+  const { files } = (await res.json()) as { files: RawFile[] };
+  // The service account may see things outside the lab folder; drop them.
+  const inside = await Promise.all(
+    files.map(async (f) => {
+      try {
+        const path = await pathTo(f.id);
+        return { ...toItem(f), path: path.map((p) => p.name).join(' / ') };
+      } catch {
+        return null;
+      }
+    }),
+  );
+  return inside.filter((f) => f !== null).slice(0, limit);
+}
+
+/** Google formats exported as text the model can read. */
+const TEXT_EXPORTS: Record<string, { mimeType: string; note?: string }> = {
+  'application/vnd.google-apps.document': { mimeType: 'text/markdown' },
+  'application/vnd.google-apps.spreadsheet': { mimeType: 'text/csv', note: 'First sheet only, as CSV.' },
+  'application/vnd.google-apps.presentation': { mimeType: 'text/plain' },
+};
+
+const TEXT_TYPES = /^(text\/|application\/(json|xml|x-yaml|yaml|javascript|x-sh|x-python|x-tex|sql|toml))/;
+const TEXT_EXTENSIONS = /\.(md|txt|csv|tsv|json|ya?ml|toml|xml|html?|css|js|ts|tsx|jsx|py|ipynb|sh|r|m|c|h|cpp|hpp|java|go|rs|tex|bib|sql|log|cfg|ini)$/i;
+const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+const MAX_PDF_BYTES = 20 * 1024 * 1024;
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const MAX_TEXT_BYTES = 10 * 1024 * 1024;
+
+export type FileContent = Omit<DriveItem, 'iconLink' | 'targetId'> & { path: string; note?: string } & (
+    | { kind: 'text'; text: string }
+    | { kind: 'pdf' | 'image'; base64: string; mediaType: string }
+    | { kind: 'unsupported'; reason: string }
+  );
+
+/** A file's contents as text (Docs, Sheets, Slides, text files) or bytes (PDFs, images). Checked against the root first. */
+export async function readFile(id: string): Promise<FileContent> {
+  const path = (await pathTo(id)).map((p) => p.name).join(' / ');
+  const f = (await (await drive(`files/${encodeURIComponent(id)}`, { fields: FILE_FIELDS })).json()) as RawFile;
+  const { iconLink: _, targetId: __, ...item } = toItem(f);
+  const base = { ...item, path };
+  const size = item.size ?? 0;
+  const bytes = async () => Buffer.from(await (await drive(`files/${encodeURIComponent(id)}`, { alt: 'media' })).arrayBuffer());
+
+  if (item.isFolder) return { ...base, kind: 'unsupported', reason: 'This is a folder; list it instead.' };
+  const exp = TEXT_EXPORTS[f.mimeType];
+  if (exp) {
+    const res = await drive(`files/${encodeURIComponent(id)}/export`, { mimeType: exp.mimeType });
+    return { ...base, kind: 'text', text: await res.text(), note: exp.note };
+  }
+  if (f.mimeType.startsWith('application/vnd.google-apps.')) return { ...base, kind: 'unsupported', reason: 'This kind of Google file can only be opened in Drive.' };
+  if (f.mimeType === 'application/pdf') {
+    if (size > MAX_PDF_BYTES) return { ...base, kind: 'unsupported', reason: 'PDF is over 20 MB.' };
+    return { ...base, kind: 'pdf', base64: (await bytes()).toString('base64'), mediaType: 'application/pdf' };
+  }
+  if (IMAGE_TYPES.has(f.mimeType)) {
+    if (size > MAX_IMAGE_BYTES) return { ...base, kind: 'unsupported', reason: 'Image is over 5 MB.' };
+    return { ...base, kind: 'image', base64: (await bytes()).toString('base64'), mediaType: f.mimeType };
+  }
+  if (TEXT_TYPES.test(f.mimeType) || TEXT_EXTENSIONS.test(f.name)) {
+    if (size > MAX_TEXT_BYTES) return { ...base, kind: 'unsupported', reason: 'File is over 10 MB.' };
+    return { ...base, kind: 'text', text: (await bytes()).toString('utf8') };
+  }
+  return { ...base, kind: 'unsupported', reason: `Can't read ${f.mimeType} files here (Word, Excel and PowerPoint uploads included); open it in Drive.` };
+}

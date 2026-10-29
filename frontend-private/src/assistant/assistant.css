@@ -262,11 +262,11 @@
   overflow: hidden;
 }
 
-.portal .tool-card.running {
+.portal .tool-card.is-running {
   border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
 }
 
-.portal .tool-card.error {
+.portal .tool-card.is-error {
   border-color: color-mix(in srgb, var(--danger) 50%, var(--border));
 }
 
@@ -298,20 +298,30 @@
   background: color-mix(in srgb, var(--info) 14%, transparent);
 }
 
-.portal .tool-card.write .tool-icon {
+.portal .tool-card.cat-write .tool-icon {
   color: var(--violet);
   background: color-mix(in srgb, var(--violet) 14%, transparent);
 }
 
-.portal .tool-card.github .tool-icon {
+.portal .tool-card.cat-github .tool-icon {
   color: var(--fg);
   background: color-mix(in srgb, var(--fg) 10%, transparent);
 }
 
-.portal .tool-card.stats .tool-icon,
-.portal .tool-card.people .tool-icon {
+.portal .tool-card.cat-stats .tool-icon,
+.portal .tool-card.cat-people .tool-icon {
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.portal .tool-card.cat-drive .tool-icon {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+}
+
+.portal .tool-card.cat-content .tool-icon {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
 }
 
 .portal .tool-title {
@@ -341,11 +351,11 @@
   color: var(--ok);
 }
 
-.portal .tool-card.running .tool-status {
+.portal .tool-card.is-running .tool-status {
   color: var(--accent);
 }
 
-.portal .tool-card.error .tool-status {
+.portal .tool-card.is-error .tool-status {
   color: var(--danger);
 }
 
@@ -549,6 +559,102 @@
   height: 100%;
   border-radius: 4px;
   background: var(--series-1);
+}
+
+.portal .tv-path {
+  margin-bottom: 0.3rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.portal .tv-file-list li {
+  flex-wrap: nowrap;
+}
+
+.portal .tv-file-list a.tv-title {
+  color: var(--fg);
+  text-decoration: none;
+}
+
+.portal .tv-file-list a.tv-title:hover {
+  text-decoration: underline;
+}
+
+.portal .tv-glyph {
+  flex: none;
+  width: 1.2rem;
+  text-align: center;
+  font-size: 0.8rem;
+}
+
+.portal .tv-glyph.code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--muted);
+}
+
+.portal .tv-file-list .tv-meta {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.portal .tv-doc-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.portal .tv-doc-head a {
+  color: var(--fg);
+}
+
+.portal .tool-view p.tv-excerpt {
+  margin-top: 0.35rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 9.5rem;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.78rem;
+  border-left: 2px solid var(--border);
+  padding-left: 0.5rem;
+}
+
+.portal .tv-col-plot {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 64px;
+  border-bottom: 1px solid var(--chart-axis);
+}
+
+.portal .tv-col {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  height: 100%;
+}
+
+.portal .tv-col .bar {
+  width: 100%;
+  min-height: 2px;
+  background: var(--series-1);
+  border-radius: 3px 3px 0 0;
+}
+
+.portal .tv-col:hover .bar {
+  background: color-mix(in srgb, var(--series-1) 75%, var(--fg));
+}
+
+.portal .tv-col-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.2rem;
 }
 
 .portal .tv-commit-head {

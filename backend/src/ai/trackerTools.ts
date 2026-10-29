@@ -1,18 +1,19 @@
-// Tools the tracker assistant can call. Each runs as the signed-in member who
-// is chatting, through the same functions the tracker routes use, so it can
-// do nothing they couldn't do on the board.
-import { GitHubError } from '../github/app';
-import { getCommit, listCommits, listIssues, listPulls, listRepos, searchOrgIssues } from '../github/repos';
-import { createIssueForTask, linkIssue, parseIssueRef } from '../tracker/links';
-import { actorOf, listMembers } from '../tracker/people';
-import { getSummary, personalSummary, resolveSprintKey } from '../tracker/sprints';
-import { memberStats } from '../tracker/stats';
-import { relinkCommits } from '../tracker/sync';
+// The assistant's task-board tools. Each runs as the signed-in member who is
+// chatting, through the same functions the tracker routes use, so it can do
+// nothing they couldn't do on the board.
+import { db } from '../db';
+import { githubAppEnabled } from '../github/app';
+import { createIssueForTask, linkIssue, parseIssueRef, unlinkIssue } from '../tracker/links';
+import { actorOf, listMembers, parseMemberInput, ROLES, updateMember, upsertMember, type MemberInput } from '../tracker/people';
+import { getSummary, listSprints, personalSummary, resolveSprintKey } from '../tracker/sprints';
+import { memberStats, overall } from '../tracker/stats';
+import { relinkCommits, runSync } from '../tracker/sync';
 import {
   addSubtask,
   createTask,
   deleteSubtask,
   deleteTask,
+  deleteUpdate,
   listTasks,
   NON_CODE_TYPES,
   parseIds,
@@ -30,15 +31,7 @@ import {
   type Task,
   type TaskFields,
 } from '../tracker/tasks';
-import type { User } from '../types';
-
-type Args = Record<string, unknown>;
-
-export interface ToolContext {
-  user: User;
-  /** Mutations made this turn, streamed to the portal so it can refresh. */
-  actions: { op: string; task_id?: number; title?: string; detail?: string }[];
-}
+import { clamp, list, plural, str, VIEW_ROWS, type Args, type Handler, type ToolDeclaration, type ToolModule, type ToolResult, type ToolView } from './toolkit';
 
 const SUBTASK_ITEM = {
   type: 'object',
@@ -50,17 +43,47 @@ const SUBTASK_ITEM = {
 };
 
 const TASK_ID = { type: 'integer', description: 'The task id (the number in T-12).' };
+const NULLABLE_LOGIN = { type: ['string', 'null'], description: 'GitHub login, or null to unassign.' };
 
-export const TOOL_DECLARATIONS = [
+const declarations: ToolDeclaration[] = [
   {
     name: 'list_team',
     description: "List the lab's team on the tracker: GitHub login, name, role, whether they have Slack linked, active.",
     parameters: { type: 'object', properties: { active_only: { type: 'boolean', description: 'Only active members (default true).' } } },
   },
   {
+    name: 'add_member',
+    description: "Add someone to the tracker's team (or update them if the login is already there). The GitHub sync adds org members automatically, so this is for people outside the org or to set a role right away.",
+    parameters: {
+      type: 'object',
+      properties: {
+        github_login: { type: 'string' },
+        name: { type: 'string' },
+        role: { type: 'string', enum: [...ROLES] },
+        slack_user_id: { type: 'string', description: 'Slack member id like U0123ABCD, for reminders.' },
+      },
+      required: ['github_login', 'name'],
+    },
+  },
+  {
+    name: 'update_member',
+    description: "Change a team member's name, role or Slack member id, or deactivate them (active=false; admins only). Deactivated members leave the board but keep their history.",
+    parameters: {
+      type: 'object',
+      properties: {
+        github_login: { type: 'string', description: 'Who to change.' },
+        name: { type: 'string' },
+        role: { type: 'string', enum: [...ROLES] },
+        slack_user_id: { type: ['string', 'null'] },
+        active: { type: 'boolean' },
+      },
+      required: ['github_login'],
+    },
+  },
+  {
     name: 'list_tasks',
     description:
-      'List tracker tasks, optionally filtered. Returns id, ref (T-12), title, description, assignee (GitHub login), status, task_type, priority, scope, sprint_key, subtasks (id/title/assignee/done; a null subtask assignee means the task assignee owns it), the 3 latest progress updates plus update_count, linked GitHub issues/PRs, and linked_commit_count. Priority (P0-P4) is independent of task_type. Scope is a 1-5 effort estimate.',
+      'List tracker tasks, optionally filtered. Returns id, ref (T-12), title, description (first 500 characters), assignee (GitHub login), status, task_type, priority, scope, sprint_key, subtasks (id/title/assignee/done; a null subtask assignee means the task assignee owns it), the 3 latest progress updates plus update_count, linked GitHub issues/PRs (with link_id), and linked_commit_count. Priority (P0-P4) is independent of task_type. Scope is a 1-5 effort estimate.',
     parameters: {
       type: 'object',
       properties: {
@@ -76,6 +99,16 @@ export const TOOL_DECLARATIONS = [
     },
   },
   {
+    name: 'get_task',
+    description: 'One task in full: the whole description, every subtask, the 20 latest updates (with update ids), linked issues/PRs (with link ids), linked commit authors and the sprints it has been in.',
+    parameters: { type: 'object', properties: { task_id: TASK_ID }, required: ['task_id'] },
+  },
+  {
+    name: 'find_tasks_for_issue',
+    description: 'Tasks that link to a GitHub issue or pull request.',
+    parameters: { type: 'object', properties: { url: { type: 'string', description: 'Issue URL or owner/repo#123.' } }, required: ['url'] },
+  },
+  {
     name: 'get_sprint_summary',
     description:
       'Summary of a weekly sprint (Saturday 11:00 to Saturday 11:00 lab time): committed vs completed, completion %, unfinished work by status, subtasks checked, updates, commits, a per-person breakdown and the task list. Closed sprints return the summary frozen at close.',
@@ -88,57 +121,29 @@ export const TOOL_DECLARATIONS = [
     },
   },
   {
+    name: 'list_sprints',
+    description: 'Every sprint so far, newest first: key, number, dates, active/closed, how many tasks, and who has planned it.',
+  },
+  {
     name: 'get_member_stats',
     description: "Each active member's GitHub activity over the last 7 days across all lab repos and branches: commits (merged to the default branch vs still on a branch) and lines added/removed.",
     parameters: { type: 'object', properties: { login: { type: 'string', description: 'Optional: just this GitHub login.' } } },
   },
   {
-    name: 'list_repos',
-    description: "The lab's GitHub repositories with description, language, open issue and PR counts, and last push.",
-  },
-  {
-    name: 'list_issues',
-    description: 'GitHub issues (or pull requests) in one repo, or across every lab repo when repo is omitted.',
+    name: 'get_lab_activity',
+    description: "Commits and lines added/removed per week across the lab's repos (or one repo), plus each contributor's totals. GitHub computes these statistics in the background; repos listed under `computing` aren't counted yet.",
     parameters: {
       type: 'object',
       properties: {
-        repo: { type: 'string', description: 'owner/name. Omit to search the whole org.' },
-        kind: { type: 'string', enum: ['issue', 'pr'], description: 'Default issue.' },
-        state: { type: 'string', enum: ['open', 'closed', 'all'], description: 'Default open.' },
-        query: { type: 'string', description: 'Text to search for (org-wide search only).' },
+        repo: { type: 'string', description: 'owner/name. Omit for all repos.' },
+        weeks: { type: 'integer', description: 'How many recent weeks, 1-52 (default 12).' },
       },
     },
   },
   {
-    name: 'list_commits',
-    description: 'Commits in a lab repo, newest first: sha, message (first line), author, date, url. Filter by branch, author, path, time window or message text. Use get_commit for the diff.',
-    parameters: {
-      type: 'object',
-      properties: {
-        repo: { type: 'string', description: 'owner/name' },
-        branch: { type: 'string', description: 'Branch name; default branch if omitted.' },
-        author: { type: 'string', description: 'GitHub login.' },
-        since_days: { type: 'integer', description: '1-90, default 7.' },
-        path: { type: 'string', description: 'Only commits touching this file or directory.' },
-        query: { type: 'string', description: 'Case-insensitive text in the commit message.' },
-        limit: { type: 'integer', description: '1-50, default 20.' },
-      },
-      required: ['repo'],
-    },
-  },
-  {
-    name: 'get_commit',
-    description: 'One commit in detail: full message, author, parents, line stats and changed files with diffs (truncated for large commits).',
-    parameters: {
-      type: 'object',
-      properties: {
-        repo: { type: 'string', description: 'owner/name' },
-        sha: { type: 'string', description: 'Full or abbreviated sha (7+ characters).' },
-        include_patch: { type: 'boolean', description: 'Include diffs (default true).' },
-        path: { type: 'string', description: 'Only files whose path starts with this.' },
-      },
-      required: ['repo', 'sha'],
-    },
+    name: 'sync_github',
+    description: 'Pull the latest from GitHub now (org members, commits on every branch, linked issue states) instead of waiting for the 10-minute sync. Closing a linked issue marks its task done during a sync.',
+    parameters: { type: 'object', properties: { force: { type: 'boolean', description: 'Rescan repos even if nothing was pushed since the last sync.' } } },
   },
   {
     name: 'get_task_commits',
@@ -172,19 +177,19 @@ export const TOOL_DECLARATIONS = [
   },
   {
     name: 'update_task',
-    description: 'Change fields on a task. Only pass what changes.',
+    description: 'Change fields on a task (including moving it between columns with status, or reassigning it). Only pass what changes.',
     parameters: {
       type: 'object',
       properties: {
         task_id: TASK_ID,
         title: { type: 'string' },
         description: { type: 'string' },
-        assignee: { type: 'string', nullable: true, description: 'GitHub login, or null to unassign.' },
+        assignee: NULLABLE_LOGIN,
         task_type: { type: 'string', enum: [...TASK_TYPES] },
         priority: { type: 'string', enum: [...PRIORITIES] },
         status: { type: 'string', enum: [...STATUSES] },
-        scope: { type: 'integer' },
-        pm_note: { type: 'string' },
+        scope: { type: ['integer', 'null'] },
+        pm_note: { type: ['string', 'null'] },
         sprint: { type: 'string', description: "'current', a sprint key, or 'backlog'." },
       },
       required: ['task_id'],
@@ -200,7 +205,7 @@ export const TOOL_DECLARATIONS = [
     description: "Hand a subtask to a team member, or pass assignee=null to give it back to the task's assignee.",
     parameters: {
       type: 'object',
-      properties: { task_id: TASK_ID, subtask_id: { type: 'integer' }, assignee: { type: 'string', nullable: true } },
+      properties: { task_id: TASK_ID, subtask_id: { type: 'integer' }, assignee: NULLABLE_LOGIN },
       required: ['task_id', 'subtask_id', 'assignee'],
     },
   },
@@ -220,6 +225,11 @@ export const TOOL_DECLARATIONS = [
     parameters: { type: 'object', properties: { task_id: TASK_ID, body: { type: 'string' }, subtask_id: { type: 'integer' } }, required: ['task_id', 'body'] },
   },
   {
+    name: 'delete_update',
+    description: 'Delete a progress update. Members can only delete their own updates. Get the update id from get_task.',
+    parameters: { type: 'object', properties: { task_id: TASK_ID, update_id: { type: 'integer' } }, required: ['task_id', 'update_id'] },
+  },
+  {
     name: 'archive_tasks',
     description: "Archive done tasks (hide them from the board) or restore archived ones with archived=false. Tasks that aren't done are skipped.",
     parameters: { type: 'object', properties: { task_ids: { type: 'array', items: { type: 'integer' } }, archived: { type: 'boolean' } }, required: ['task_ids'] },
@@ -228,6 +238,15 @@ export const TOOL_DECLARATIONS = [
     name: 'link_issue',
     description: 'Link a task to a GitHub issue or pull request (URL or owner/repo#123). Closing a linked issue marks the task done.',
     parameters: { type: 'object', properties: { task_id: TASK_ID, url: { type: 'string' } }, required: ['task_id', 'url'] },
+  },
+  {
+    name: 'unlink_issue',
+    description: 'Remove the link between a task and a GitHub issue or pull request. The issue itself is not touched.',
+    parameters: {
+      type: 'object',
+      properties: { task_id: TASK_ID, url: { type: 'string', description: 'Issue URL or owner/repo#123 of the linked issue.' } },
+      required: ['task_id', 'url'],
+    },
   },
   {
     name: 'create_issue_from_task',
@@ -245,12 +264,6 @@ export const TOOL_DECLARATIONS = [
   },
 ];
 
-const clamp = (v: unknown, def: number, lo: number, hi: number) => {
-  const n = Number(v);
-  return Number.isFinite(n) ? Math.min(hi, Math.max(lo, Math.round(n))) : def;
-};
-const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
-
 function taskView(t: Task) {
   return {
     id: t.id,
@@ -266,9 +279,9 @@ function taskView(t: Task) {
     sprint_key: t.sprint_key,
     archived: t.archived,
     subtasks: t.subtasks.map((s) => ({ id: s.id, title: s.title, assignee: s.assignee, done: s.done })),
-    latest_updates: t.updates.slice(0, 3).map((u) => ({ author: u.author, body: u.body, at: u.created_at })),
+    latest_updates: t.updates.slice(0, 3).map((u) => ({ id: u.id, author: u.author, body: u.body, at: u.created_at })),
     update_count: t.updates.length,
-    links: t.links.map((l) => ({ ref: `${l.repo}#${l.number}`, kind: l.kind, title: l.title, state: l.state, merged: l.merged })),
+    links: t.links.map((l) => ({ link_id: l.id, ref: `${l.repo}#${l.number}`, kind: l.kind, title: l.title, state: l.state, merged: l.merged })),
     linked_commit_count: t.commits.length,
     created_at: t.created_at,
     updated_at: t.updated_at,
@@ -281,9 +294,13 @@ function taskFields(args: Args, partial: boolean): Partial<TaskFields> {
   return parseTaskFields({ ...rest, ...(sprint !== undefined ? { sprint_key: sprint } : {}) }, partial);
 }
 
-type Handler = (args: Args, ctx: ToolContext) => unknown;
+function memberInput(args: Args, partial: boolean): Partial<MemberInput> {
+  const input = parseMemberInput(args, partial);
+  if ('error' in input) throw new TrackerError(400, input.error as string);
+  return input as Partial<MemberInput>;
+}
 
-const HANDLERS: Record<string, Handler> = {
+const handlers: Record<string, Handler> = {
   list_team: (args) => ({
     members: listMembers(args.active_only !== false).map((m) => ({
       login: m.github_login,
@@ -293,6 +310,23 @@ const HANDLERS: Record<string, Handler> = {
       active: m.active,
     })),
   }),
+
+  add_member: (args, ctx) => {
+    const member = upsertMember(memberInput(args, false) as MemberInput);
+    ctx.actions.push({ op: 'team', detail: `added @${member.github_login}` });
+    return { member };
+  },
+
+  update_member: (args, ctx) => {
+    const { github_login, ...rest } = args;
+    const current = db.prepare('SELECT id FROM tracker_members WHERE github_login = ? COLLATE NOCASE').get(String(github_login ?? '').replace(/^@/, '')) as { id: number } | undefined;
+    if (!current) return { error: `@${github_login} isn't on the team` };
+    const fields = memberInput(rest, true);
+    if ('active' in fields && ctx.user.role !== 'admin') return { error: 'Only lab admins can deactivate members' };
+    const member = updateMember(current.id, fields);
+    ctx.actions.push({ op: 'team', detail: `updated @${member?.github_login}` });
+    return { member };
+  },
 
   list_tasks: (args) => {
     const tasks = listTasks({
@@ -308,6 +342,26 @@ const HANDLERS: Record<string, Handler> = {
     return { total: tasks.length, tasks: tasks.slice(0, 100).map(taskView) };
   },
 
+  get_task: (args) => {
+    const t = requireTask(Number(args.task_id));
+    return {
+      task: {
+        ...taskView(t),
+        description: t.description,
+        sprint_history: t.sprint_keys,
+        updates: t.updates.slice(0, 20).map((u) => ({ id: u.id, author: u.author, body: u.body, subtask_id: u.subtask_id, at: u.created_at })),
+        commit_authors: t.commit_authors,
+      },
+    };
+  },
+
+  find_tasks_for_issue: (args) => {
+    const ref = parseIssueRef({ url: args.url });
+    const ids = db.prepare('SELECT task_id FROM tracker_links WHERE repo = ? COLLATE NOCASE AND number = ?').all(ref.repo, ref.number) as { task_id: number }[];
+    const tasks = ids.map((r) => taskView(requireTask(r.task_id)));
+    return { issue: `${ref.repo}#${ref.number}`, total: tasks.length, tasks };
+  },
+
   get_sprint_summary: (args) => {
     const key = resolveSprintKey(str(args.sprint) ?? 'current');
     const summary = key ? getSummary(key) : null;
@@ -315,52 +369,24 @@ const HANDLERS: Record<string, Handler> = {
     return str(args.login) ? personalSummary(summary, str(args.login)!) : summary;
   },
 
+  list_sprints: () => ({ sprints: listSprints() }),
+
   get_member_stats: (args) => {
     const all = memberStats();
     const login = str(args.login)?.toLowerCase();
     return { members: login ? all.filter((m) => m.login.toLowerCase() === login) : all };
   },
 
-  list_repos: async () => ({ repos: await listRepos() }),
-
-  list_issues: async (args) => {
-    const state = (['open', 'closed', 'all'].includes(String(args.state)) ? args.state : 'open') as 'open' | 'closed' | 'all';
-    const kind = args.kind === 'pr' ? 'pr' : 'issue';
-    const repo = str(args.repo);
-    const items = repo
-      ? await (kind === 'pr' ? listPulls(repo, state) : listIssues(repo, state))
-      : await searchOrgIssues({ state, kind, q: str(args.query) });
-    return { total: items.length, items: items.slice(0, 50) };
+  get_lab_activity: async (args) => {
+    if (!githubAppEnabled) return { error: 'The GitHub App is not set up' };
+    const data = await overall(str(args.repo));
+    const weeks = data.weeks.slice(-clamp(args.weeks, 12, 1, 52));
+    return { ...data, weeks, contributors: data.contributors.map(({ weeks: _, ...c }) => c) };
   },
 
-  list_commits: async (args) => {
-    const days = clamp(args.since_days, 7, 1, 90);
-    const commits = await listCommits(String(args.repo), {
-      sha: str(args.branch),
-      author: str(args.author),
-      path: str(args.path),
-      since: new Date(Date.now() - days * 86_400_000).toISOString(),
-      maxPages: 3,
-    });
-    const query = str(args.query)?.toLowerCase();
-    const matched = query ? commits.filter((c) => c.message.toLowerCase().includes(query)) : commits;
-    return { total_matched: matched.length, commits: matched.slice(0, clamp(args.limit, 20, 1, 50)) };
-  },
-
-  get_commit: async (args) => {
-    const c = await getCommit(String(args.repo), String(args.sha));
-    const prefix = str(args.path);
-    let budget = 12_000;
-    const files = c.files
-      .filter((f) => !prefix || f.filename.startsWith(prefix))
-      .slice(0, 60)
-      .map((f) => {
-        if (args.include_patch === false || !f.patch) return { ...f, patch: undefined };
-        const patch = f.patch.slice(0, Math.min(3000, Math.max(0, budget)));
-        budget -= patch.length;
-        return { ...f, patch: patch.length < f.patch.length ? `${patch}\n…(truncated)` : patch };
-      });
-    return { ...c, files_changed: c.files.length, files };
+  sync_github: async (args) => {
+    if (!githubAppEnabled) return { error: 'The GitHub App is not set up' };
+    return { ...(await runSync({ force: args.force === true })) };
   },
 
   get_task_commits: (args) => {
@@ -424,6 +450,12 @@ const HANDLERS: Record<string, Handler> = {
     return { posted_on: task.ref, title: task.title };
   },
 
+  delete_update: (args, ctx) => {
+    const task = deleteUpdate(Number(args.task_id), Number(args.update_id), actorOf(ctx.user));
+    ctx.actions.push({ op: 'update', task_id: task.id, title: task.title, detail: 'deleted update' });
+    return { deleted_from: task.ref, title: task.title };
+  },
+
   archive_tasks: (args, ctx) => {
     const archived = args.archived !== false;
     const result = setArchived(parseIds(args.task_ids), archived, actorOf(ctx.user));
@@ -435,6 +467,16 @@ const HANDLERS: Record<string, Handler> = {
     const task = await linkIssue(Number(args.task_id), parseIssueRef({ url: args.url }));
     ctx.actions.push({ op: 'update', task_id: task.id, title: task.title, detail: 'linked issue' });
     return { task: taskView(task) };
+  },
+
+  unlink_issue: (args, ctx) => {
+    const ref = parseIssueRef({ url: args.url });
+    const current = requireTask(Number(args.task_id));
+    const link = current.links.find((l) => l.repo.toLowerCase() === ref.repo.toLowerCase() && l.number === ref.number);
+    if (!link) return { error: `${current.ref} isn't linked to ${ref.repo}#${ref.number}` };
+    const task = unlinkIssue(current.id, link.id);
+    ctx.actions.push({ op: 'update', task_id: task.id, title: task.title, detail: 'unlinked issue' });
+    return { unlinked: `${link.repo}#${link.number}`, task: taskView(task) };
   },
 
   create_issue_from_task: async (args, ctx) => {
@@ -453,42 +495,33 @@ const HANDLERS: Record<string, Handler> = {
   },
 };
 
-export async function runTool(name: string, args: Args, ctx: ToolContext): Promise<Record<string, unknown>> {
-  const handler = HANDLERS[name];
-  if (!handler) return { error: `Unknown tool ${name}` };
-  try {
-    const result = await handler(args ?? {}, ctx);
-    return result && typeof result === 'object' && !Array.isArray(result) ? (result as Record<string, unknown>) : { result };
-  } catch (err) {
-    // Surfaced to the model so it can correct itself.
-    if (err instanceof TrackerError || err instanceof GitHubError) return { error: err.message };
-    return { error: err instanceof Error ? `${err.name}: ${err.message}` : String(err) };
-  }
-}
-
-/** One short line per tool call, shown as a chip in the chat. */
-export function summarizeResult(name: string, r: Record<string, unknown>): string {
-  if (r.error) return `error: ${String(r.error)}`;
-  const len = (k: string) => (Array.isArray(r[k]) ? (r[k] as unknown[]).length : 0);
+function summarize(name: string, r: ToolResult): string | undefined {
+  const len = (k: string) => list(r, k).length;
   switch (name) {
     case 'list_team':
-      return `${len('members')} members`;
+      return plural(len('members'), 'member');
+    case 'add_member':
+    case 'update_member':
+      return `@${(r.member as { github_login: string }).github_login}`;
     case 'list_tasks':
-      return `${r.total} task${r.total === 1 ? '' : 's'}`;
+    case 'find_tasks_for_issue':
+      return plural(Number(r.total), 'task');
+    case 'get_task': {
+      const t = r.task as { ref: string; title: string };
+      return `${t.ref} · ${t.title}`;
+    }
+    case 'list_sprints':
+      return plural(len('sprints'), 'sprint');
     case 'get_member_stats':
-      return `${len('members')} members`;
-    case 'list_repos':
-      return `${len('repos')} repos`;
-    case 'list_issues':
-      return `${r.total} item${r.total === 1 ? '' : 's'}`;
-    case 'list_commits':
-      return `${len('commits')} of ${r.total_matched} commits`;
-    case 'get_commit':
-      return `${String(r.sha).slice(0, 7)} · ${r.files_changed} files`;
+      return plural(len('members'), 'member');
+    case 'get_lab_activity':
+      return `${plural(len('weeks'), 'week')} across ${plural(len('repos'), 'repo')}`;
+    case 'sync_github':
+      return 'synced';
     case 'get_task_commits':
-      return `${r.count} linked commits`;
+      return plural(Number(r.count), 'linked commit');
     case 'get_task_updates':
-      return `${len('updates')} of ${r.total} updates`;
+      return `${len('updates')} of ${plural(Number(r.total), 'update')}`;
     case 'get_sprint_summary': {
       const t = r.totals as { completed: number; committed: number; completion_pct: number } | undefined;
       const p = r.person as { completed: number; committed: number } | undefined;
@@ -502,133 +535,106 @@ export function summarizeResult(name: string, r: Record<string, unknown>): strin
       return `${r.archived ? 'archived' : 'restored'} ${r.updated}${r.skipped ? `, skipped ${r.skipped}` : ''}`;
     case 'post_update':
       return `posted on ${r.posted_on}`;
+    case 'delete_update':
+      return `deleted from ${r.deleted_from}`;
+    case 'unlink_issue':
+      return `unlinked ${r.unlinked}`;
     case 'create_issue_from_task':
       return `opened ${(r.issue as { ref: string } | null)?.ref ?? 'issue'}`;
     case 'delete_task':
       return `deleted "${r.deleted}"`;
     default:
-      return 'ok';
+      return undefined;
   }
 }
 
-/**
- * What the portal draws for a tool call: a compact, typed slice of the result
- * (the model sees the full result; the browser only needs enough to show it).
- */
-export type ToolView =
-  | { kind: 'tasks'; total: number; items: { id: number; ref: string; title: string; status: string; priority: string; assignee: string | null }[] }
-  | { kind: 'people'; items: { login: string; name: string; role: string }[] }
-  | { kind: 'bars'; unit: string; items: { label: string; value: number; secondary: number }[]; legend: [string, string] }
-  | { kind: 'sprint'; label: string; committed: number; completed: number; pct: number; in_progress: number; blocked: number; todo: number }
-  | { kind: 'rows'; total: number; items: { key: string; title: string; meta: string; state?: string; url?: string }[] }
-  | { kind: 'commit'; sha: string; message: string; additions: number; deletions: number; files: { name: string; additions: number; deletions: number }[] }
-  | { kind: 'error'; message: string };
+type TaskViewRow = ReturnType<typeof taskView>;
+const taskItem = (t: TaskViewRow) => ({ id: t.id, ref: t.ref, title: t.title, status: t.status, priority: t.priority, assignee: t.assignee });
 
-const ROWS = 8;
-
-const taskItem = (t: ReturnType<typeof taskView>) => ({ id: t.id, ref: t.ref, title: t.title, status: t.status, priority: t.priority, assignee: t.assignee });
-const commitRow = (c: { sha: string; message: string; author_login: string | null; author_name: string | null; authored_at: string; url: string }) => ({
-  key: c.sha.slice(0, 7),
-  title: c.message.split('\n')[0],
-  meta: `${c.author_login ?? c.author_name ?? 'unknown'} · ${c.authored_at.slice(0, 10)}`,
-  url: c.url,
-});
-
-export function viewOf(name: string, r: Record<string, unknown>): ToolView | null {
-  if (r.error) return { kind: 'error', message: String(r.error) };
-  const list = <T>(k: string) => (Array.isArray(r[k]) ? (r[k] as T[]) : []);
+function view(name: string, r: ToolResult): ToolView | null | undefined {
   switch (name) {
-    case 'list_tasks': {
-      const tasks = list<ReturnType<typeof taskView>>('tasks');
-      return { kind: 'tasks', total: Number(r.total ?? tasks.length), items: tasks.slice(0, ROWS).map(taskItem) };
+    case 'list_tasks':
+    case 'find_tasks_for_issue': {
+      const tasks = list<TaskViewRow>(r, 'tasks');
+      return { kind: 'tasks', total: Number(r.total ?? tasks.length), items: tasks.slice(0, VIEW_ROWS).map(taskItem) };
     }
+    case 'get_task':
     case 'create_task':
     case 'update_task':
     case 'add_subtasks':
     case 'assign_subtask':
     case 'set_subtask_done':
     case 'delete_subtask':
-    case 'link_issue': {
-      const t = (r.created ?? r.task) as ReturnType<typeof taskView> | undefined;
+    case 'link_issue':
+    case 'unlink_issue': {
+      const t = (r.created ?? r.task) as TaskViewRow | undefined;
       return t && typeof t === 'object' ? { kind: 'tasks', total: 1, items: [taskItem(t)] } : null;
     }
     case 'list_team':
-      return { kind: 'people', items: list<{ login: string; name: string; role: string }>('members').map(({ login, name, role }) => ({ login, name, role })) };
+      return { kind: 'people', items: list<{ login: string; name: string; role: string }>(r, 'members').map(({ login, name, role }) => ({ login, name, role })) };
+    case 'add_member':
+    case 'update_member': {
+      const m = r.member as { github_login: string; name: string; role: string };
+      return { kind: 'people', items: [{ login: m.github_login, name: m.name, role: m.role }] };
+    }
     case 'get_member_stats':
       return {
         kind: 'bars',
         unit: 'commits, last 7 days',
         legend: ['merged', 'on a branch'],
-        items: list<MemberStatsRow>('members')
+        items: list<{ login: string; merged_count: number; unmerged_count: number }>(r, 'members')
           .map((m) => ({ label: m.login, value: m.merged_count, secondary: m.unmerged_count }))
           .sort((a, b) => b.value + b.secondary - (a.value + a.secondary)),
       };
+    case 'get_lab_activity':
+      return {
+        kind: 'columns',
+        unit: 'commits per week',
+        items: list<{ week: number; commits: number }>(r, 'weeks').map((w) => ({ label: new Date(w.week * 1000).toISOString().slice(5, 10), value: w.commits })),
+      };
+    case 'list_sprints': {
+      const sprints = list<{ key: string; label: string; status: string; task_count: number }>(r, 'sprints');
+      return {
+        kind: 'rows',
+        total: sprints.length,
+        items: sprints.slice(0, VIEW_ROWS).map((s) => ({ key: s.key, title: s.label, meta: plural(s.task_count, 'task'), state: s.status === 'active' ? 'open' : 'closed' })),
+      };
+    }
     case 'get_sprint_summary': {
       const t = r.totals as { committed: number; completed: number; completion_pct: number; in_progress: number; blocked: number; todo: number } | undefined;
       if (t) return { kind: 'sprint', label: String(r.label), committed: t.committed, completed: t.completed, pct: t.completion_pct, in_progress: t.in_progress, blocked: t.blocked, todo: t.todo };
       const p = r.person as { committed: number; completed: number } | undefined;
       if (!p) return null;
       const pct = p.committed ? Math.round((p.completed / p.committed) * 100) : 0;
-      const open = list<{ status: string; completed: boolean }>('tasks').filter((x) => !x.completed);
+      const open = list<{ status: string; completed: boolean }>(r, 'tasks').filter((x) => !x.completed);
       const count = (s: string) => open.filter((x) => x.status === s).length;
       return { kind: 'sprint', label: String(r.label), committed: p.committed, completed: p.completed, pct, in_progress: count('in-progress'), blocked: count('blocked'), todo: count('todo') };
     }
-    case 'list_repos': {
-      const repos = list<{ full_name: string; description: string | null; language: string | null; open_issues: number; open_prs: number; url: string }>('repos');
-      return {
-        kind: 'rows',
-        total: repos.length,
-        items: repos.slice(0, ROWS).map((x) => ({
-          key: x.full_name.split('/')[1] ?? x.full_name,
-          title: x.description ?? '',
-          meta: [x.language, `${x.open_issues} issues`, `${x.open_prs} PRs`].filter(Boolean).join(' · '),
-          url: x.url,
-        })),
-      };
-    }
-    case 'list_issues': {
-      const items = list<{ repo: string; number: number; title: string; state: string; merged: boolean; user: string | null; url: string }>('items');
-      return {
-        kind: 'rows',
-        total: Number(r.total ?? items.length),
-        items: items.slice(0, ROWS).map((x) => ({
-          key: `${x.repo.split('/')[1] ?? x.repo}#${x.number}`,
-          title: x.title,
-          meta: x.user ? `@${x.user}` : '',
-          state: x.merged ? 'merged' : x.state,
-          url: x.url,
-        })),
-      };
-    }
-    case 'list_commits':
-      return { kind: 'rows', total: Number(r.total_matched ?? 0), items: list<CommitRowInput>('commits').slice(0, ROWS).map(commitRow) };
     case 'get_task_commits':
-      return { kind: 'rows', total: Number(r.count ?? 0), items: list<CommitRowInput>('commits').slice(0, ROWS).map(commitRow) };
+      return {
+        kind: 'rows',
+        total: Number(r.count ?? 0),
+        items: list<{ sha: string; message: string; author_login: string | null; author_name: string | null; authored_at: string; url: string; merged: boolean }>(r, 'commits')
+          .slice(0, VIEW_ROWS)
+          .map((c) => ({
+            key: c.sha.slice(0, 7),
+            title: c.message.split('\n')[0],
+            meta: `${c.author_login ?? c.author_name ?? 'unknown'} · ${c.authored_at.slice(0, 10)}`,
+            state: c.merged ? 'merged' : 'open',
+            url: c.url,
+          })),
+      };
     case 'get_task_updates': {
-      const updates = list<{ author: string; body: string; created_at: string }>('updates');
+      const updates = list<{ author: string; body: string; created_at: string }>(r, 'updates');
       return {
         kind: 'rows',
         total: Number(r.total ?? updates.length),
-        items: updates.slice(0, ROWS).map((u) => ({ key: u.author, title: u.body.slice(0, 160), meta: u.created_at.slice(0, 10) })),
-      };
-    }
-    case 'get_commit': {
-      const stats = r.stats as { additions: number; deletions: number } | undefined;
-      return {
-        kind: 'commit',
-        sha: String(r.sha).slice(0, 7),
-        message: String(r.message ?? '').split('\n')[0],
-        additions: stats?.additions ?? 0,
-        deletions: stats?.deletions ?? 0,
-        files: list<{ filename: string; additions: number; deletions: number }>('files')
-          .slice(0, ROWS)
-          .map((f) => ({ name: f.filename, additions: f.additions, deletions: f.deletions })),
+        items: updates.slice(0, VIEW_ROWS).map((u) => ({ key: u.author, title: u.body.slice(0, 160), meta: u.created_at.slice(0, 10) })),
       };
     }
     default:
-      return null;
+      return undefined;
   }
 }
 
-type MemberStatsRow = { login: string; merged_count: number; unmerged_count: number };
-type CommitRowInput = Parameters<typeof commitRow>[0];
+export const trackerTools: ToolModule = { declarations, handlers, summarize, view };

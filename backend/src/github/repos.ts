@@ -2,8 +2,9 @@
 // shows them. Reads are cached briefly in memory; GitHub stays the source of
 // truth. Only repos the App is installed on are served (assertRepo), so the
 // App can't be used to read arbitrary public repos.
+import { gunzipSync } from 'node:zlib';
 import { config } from '../config';
-import { gh, ghPaginate, GitHubError } from './app';
+import { gh, ghPaginate, ghRaw, GitHubError } from './app';
 
 const LIST_TTL_MS = 2 * 60 * 1000;
 const STATS_TTL_MS = 60 * 60 * 1000;
@@ -520,6 +521,179 @@ export async function repoActivity(fullName: string): Promise<RepoActivity> {
       contributors: contributors.sort((a, b) => b.commits - a.commits),
     };
   });
+}
+
+// ---------------------------------------------------------------------------
+// Files in a repo (read-only) and code search
+
+export interface RepoEntry {
+  path: string;
+  type: 'file' | 'dir' | 'symlink' | 'submodule';
+  size: number | null;
+  url: string | null;
+}
+
+/**
+ * What is in a directory of a repo (`recursive`: the whole tree under it, up
+ * to GitHub's limit). `ref` is a branch, tag or sha; default branch if omitted.
+ */
+export async function listRepoFiles(fullName: string, { path = '', ref, recursive = false }: { path?: string; ref?: string; recursive?: boolean } = {}): Promise<{ ref: string; entries: RepoEntry[]; truncated: boolean }> {
+  const repo = await assertRepo(fullName);
+  const branch = ref || repo.default_branch;
+  const dir = path.replace(/^\/+|\/+$/g, '');
+  if (recursive) {
+    const tree = await gh<{ tree: { path: string; type: string; size?: number }[]; truncated: boolean }>(
+      `/repos/${repo.full_name}/git/trees/${encodeURIComponent(branch)}`,
+      { params: { recursive: 1 } },
+    );
+    const entries = tree.tree
+      .filter((t) => !dir || t.path === dir || t.path.startsWith(`${dir}/`))
+      .map((t) => ({
+        path: t.path,
+        type: (t.type === 'tree' ? 'dir' : t.type === 'commit' ? 'submodule' : 'file') as RepoEntry['type'],
+        size: t.size ?? null,
+        url: `${repo.html_url}/${t.type === 'tree' ? 'tree' : 'blob'}/${branch}/${t.path}`,
+      }));
+    return { ref: branch, entries, truncated: tree.truncated };
+  }
+  const raw = await gh<GhContent | GhContent[]>(`/repos/${repo.full_name}/contents/${encodePath(dir)}`, { params: { ref: branch } });
+  if (!Array.isArray(raw)) throw new GitHubError(400, `${dir} is a file; read it instead`);
+  const entries = raw
+    .map((c) => ({ path: c.path, type: c.type, size: c.type === 'file' ? c.size : null, url: c.html_url }))
+    .sort((a, b) => Number(b.type === 'dir') - Number(a.type === 'dir') || a.path.localeCompare(b.path));
+  return { ref: branch, entries, truncated: false };
+}
+
+const encodePath = (p: string) => p.split('/').map(encodeURIComponent).join('/');
+
+/** A text file from a repo, decoded; binary files are reported, not returned. */
+export async function readRepoFile(
+  fullName: string,
+  path: string,
+  ref?: string,
+): Promise<{ path: string; ref: string; size: number; binary: boolean; text: string; url: string | null }> {
+  const repo = await assertRepo(fullName);
+  const branch = ref || repo.default_branch;
+  const file = await gh<GhContent | GhContent[]>(`/repos/${repo.full_name}/contents/${encodePath(path.replace(/^\/+/, ''))}`, { params: { ref: branch } });
+  if (Array.isArray(file) || file.type !== 'file') throw new GitHubError(400, `${path} is a directory; list it instead`);
+  // The contents API leaves out files over 1 MB; the blob API has them.
+  const base64 = file.content ? file.content : (await gh<{ content: string }>(`/repos/${repo.full_name}/git/blobs/${file.sha}`)).content;
+  const bytes = Buffer.from(base64, 'base64');
+  const binary = bytes.subarray(0, 8000).includes(0);
+  return { path: file.path, ref: branch, size: file.size, binary, text: binary ? '' : bytes.toString('utf8'), url: file.html_url };
+}
+
+// GitHub's code search doesn't serve private repos to App tokens, so search
+// runs here: each repo's default branch is downloaded once as a tarball (one
+// API call) and its text files kept in memory until the branch moves.
+const MAX_SEARCH_FILE = 512 * 1024;
+const MAX_SEARCH_REPO = 40 * 1024 * 1024;
+const snapshots = new Map<string, { sha: string; files: Map<string, string>; at: number }>();
+
+/** Text files of a repo's default branch, by path. */
+async function repoText(repo: GhRepo): Promise<Map<string, string>> {
+  const head = await cached(`head:${repo.full_name}`, LIST_TTL_MS, () =>
+    gh<{ sha: string }>(`/repos/${repo.full_name}/commits/${encodeURIComponent(repo.default_branch)}`).then((c) => c.sha),
+  );
+  const hit = snapshots.get(repo.full_name);
+  if (hit && hit.sha === head) return hit.files;
+
+  const archive = Buffer.from(await (await ghRaw(`/repos/${repo.full_name}/tarball/${head}`)).arrayBuffer());
+  const files = untarText(gunzipSync(archive));
+  snapshots.set(repo.full_name, { sha: head, files, at: Date.now() });
+  // Keep the few most recently searched repos.
+  if (snapshots.size > 8) snapshots.delete([...snapshots.entries()].sort((a, b) => a[1].at - b[1].at)[0][0]);
+  return files;
+}
+
+/** Regular text files from a tar archive, without the archive's top-level folder. */
+function untarText(tar: Buffer): Map<string, string> {
+  const files = new Map<string, string>();
+  let total = 0;
+  let longName: string | null = null;
+  for (let at = 0; at + 512 <= tar.length; ) {
+    const header = tar.subarray(at, at + 512);
+    if (header.every((b) => b === 0)) break;
+    const field = (start: number, len: number) => header.subarray(start, start + len).toString('utf8').replace(/\0.*$/s, '');
+    const size = parseInt(field(124, 12).trim() || '0', 8);
+    const type = field(156, 1);
+    const prefix = field(345, 155);
+    const body = tar.subarray(at + 512, at + 512 + size);
+    at += 512 + Math.ceil(size / 512) * 512;
+
+    if (type === 'x') {
+      // A pax header carrying a path too long for the ustar fields.
+      longName = /\d+ path=([^\n]*)\n/.exec(body.toString('utf8'))?.[1] ?? null;
+      continue;
+    }
+    const name = longName ?? (prefix ? `${prefix}/${field(0, 100)}` : field(0, 100));
+    longName = null;
+    if ((type !== '0' && type !== '') || size > MAX_SEARCH_FILE || total + size > MAX_SEARCH_REPO) continue;
+    if (body.subarray(0, 8000).includes(0)) continue; // binary
+    files.set(name.replace(/^[^/]+\//, ''), body.toString('utf8'));
+    total += size;
+  }
+  return files;
+}
+
+export interface CodeMatch {
+  repo: string;
+  path: string;
+  line: number;
+  text: string;
+  url: string;
+}
+
+/**
+ * Lines matching `query` (case-insensitive text, or a regular expression with
+ * `regex`) in the default branch of the lab's repos, or one repo. File paths
+ * that match count too.
+ */
+export async function searchCode(
+  query: string,
+  { repo: fullName, regex = false, path: pathFilter, limit = 50 }: { repo?: string; regex?: boolean; path?: string; limit?: number } = {},
+): Promise<{ total: number; files: number; repos: string[]; items: CodeMatch[]; path_matches: { repo: string; path: string; url: string }[] }> {
+  let re: RegExp;
+  try {
+    re = new RegExp(regex ? query : query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+  } catch {
+    throw new GitHubError(400, 'Invalid regular expression');
+  }
+  const repos = fullName
+    ? [await assertRepo(fullName)]
+    : (await installationRepos())
+        .filter((r) => !r.archived)
+        .sort((a, b) => (b.pushed_at ?? '').localeCompare(a.pushed_at ?? ''))
+        .slice(0, 10);
+  const items: CodeMatch[] = [];
+  const pathMatches: { repo: string; path: string; url: string }[] = [];
+  let total = 0;
+  const matchedFiles = new Set<string>();
+  for (const repo of repos) {
+    const files = await repoText(repo);
+    const blob = (p: string, line?: number) => `${repo.html_url}/blob/${repo.default_branch}/${p.split('/').map(encodeURIComponent).join('/')}${line ? `#L${line}` : ''}`;
+    for (const [path, text] of files) {
+      if (pathFilter && !path.startsWith(pathFilter.replace(/^\/+/, ''))) continue;
+      if (re.test(path) && pathMatches.length < limit) pathMatches.push({ repo: repo.full_name, path, url: blob(path) });
+      const lines = text.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        if (!re.test(lines[i])) continue;
+        total++;
+        matchedFiles.add(`${repo.full_name}:${path}`);
+        if (items.length < limit) items.push({ repo: repo.full_name, path, line: i + 1, text: lines[i].trim().slice(0, 240), url: blob(path, i + 1) });
+      }
+    }
+  }
+  return { total, files: matchedFiles.size, repos: repos.map((r) => r.full_name), items, path_matches: pathMatches };
+}
+
+interface GhContent {
+  type: 'file' | 'dir' | 'symlink' | 'submodule';
+  path: string;
+  sha: string;
+  size: number;
+  content?: string;
+  html_url: string | null;
 }
 
 /** The App's repos (for the sync job), without the PR counts. */

@@ -83,6 +83,11 @@ async function request(target: string, { method = 'GET', body }: RequestOptions 
   throw new GitHubError(502, `GitHub error: ${detail.message ?? res.status}`);
 }
 
+/** One request, for bodies that aren't JSON (archives). */
+export async function ghRaw(path: string, options: RequestOptions = {}): Promise<Response> {
+  return request(url(path, options.params), options);
+}
+
 /** One request; JSON body, or null for 204. */
 export async function gh<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const res = await request(url(path, options.params), options);
