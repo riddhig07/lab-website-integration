@@ -405,7 +405,7 @@ const handlers: Record<string, Handler> = {
     // Default: the current sprint for assigned work, else the backlog.
     if (args.sprint === undefined) fields.sprint_key = fields.assignee ? resolveSprintKey('current') : null;
     const task = createTask(fields, parseSubtasks(args.subtasks), actorOf(ctx.user));
-    notifyAssignments(null, task, actorOf(ctx.user));
+    notifyAssignments(null, task, actorOf(ctx.user), true);
     if (!NON_CODE_TYPES.has(task.task_type)) relinkCommits();
     ctx.actions.push({ op: 'create', task_id: task.id, title: task.title });
     return { created: taskView(task) };
@@ -416,7 +416,7 @@ const handlers: Record<string, Handler> = {
     const fields = taskFields(args, true);
     const before = requireTask(id);
     const { task, titleChanged } = patchTask(before.id, fields);
-    notifyAssignments(before, task, actorOf(ctx.user));
+    notifyAssignments(before, task, actorOf(ctx.user), true);
     if (titleChanged && !NON_CODE_TYPES.has(task.task_type)) relinkCommits();
     ctx.actions.push({ op: 'update', task_id: id, title: task.title, detail: Object.keys(fields).join(', ') });
     return { updated: Object.keys(fields), task: taskView(task) };
@@ -427,7 +427,7 @@ const handlers: Record<string, Handler> = {
     const before = requireTask(id);
     let task = before;
     for (const s of parseSubtasks(args.subtasks)) task = addSubtask(id, s);
-    notifyAssignments(before, task, actorOf(ctx.user));
+    notifyAssignments(before, task, actorOf(ctx.user), true);
     ctx.actions.push({ op: 'update', task_id: id, title: task.title, detail: 'subtasks' });
     return { task: taskView(task) };
   },
@@ -435,7 +435,7 @@ const handlers: Record<string, Handler> = {
   assign_subtask: (args, ctx) => {
     const before = requireTask(Number(args.task_id));
     const task = patchSubtask(before.id, Number(args.subtask_id), { assignee: args.assignee ?? null }, actorOf(ctx.user));
-    notifyAssignments(before, task, actorOf(ctx.user));
+    notifyAssignments(before, task, actorOf(ctx.user), true);
     ctx.actions.push({ op: 'update', task_id: task.id, title: task.title, detail: 'subtask assignee' });
     return { task: taskView(task) };
   },
