@@ -189,6 +189,19 @@ export interface TaskUpdate {
   created_at: string;
 }
 
+/** A Google Doc / Sheet / Slides deck or other Drive file linked to a task. */
+export interface TaskDoc {
+  id: number;
+  file_id: string;
+  name: string;
+  mime_type: string;
+  url: string;
+  /** Inside the lab's Drive folder. */
+  in_lab: boolean;
+  added_by: string;
+  created_at: string;
+}
+
 export interface TaskLink {
   id: number;
   repo: string;
@@ -238,6 +251,7 @@ export interface Task {
   /** Newest first. */
   updates: TaskUpdate[];
   links: TaskLink[];
+  docs: TaskDoc[];
   /** Newest first. */
   commits: LinkedCommit[];
   commit_authors: { login: string | null; name: string; count: number; merged: number; unmerged: number }[];

@@ -168,6 +168,21 @@ CREATE TABLE IF NOT EXISTS tracker_links (
 );
 CREATE INDEX IF NOT EXISTS tracker_links_issue ON tracker_links(repo, number);
 
+-- Google Docs, Sheets, Slides and other Drive files linked to a task.
+-- in_lab: inside the lab's Drive folder, so the portal (and its assistant) can read it.
+CREATE TABLE IF NOT EXISTS tracker_docs (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id    INTEGER NOT NULL REFERENCES tracker_tasks(id) ON DELETE CASCADE,
+  file_id    TEXT NOT NULL,
+  name       TEXT NOT NULL,
+  mime_type  TEXT NOT NULL,
+  url        TEXT NOT NULL,
+  in_lab     INTEGER NOT NULL DEFAULT 0,
+  added_by   TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (task_id, file_id)
+);
+
 -- Recent commits across the org's repos (all branches), collected by the sync
 -- job. on_default: reachable from the repo's default branch, i.e. merged.
 CREATE TABLE IF NOT EXISTS gh_commits (

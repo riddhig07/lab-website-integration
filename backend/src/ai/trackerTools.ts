@@ -3,6 +3,7 @@
 // nothing they couldn't do on the board.
 import { db } from '../db';
 import { githubAppEnabled } from '../github/app';
+import { linkDoc, parseDocRef, unlinkDoc } from '../tracker/docs';
 import { createIssueForTask, linkIssue, parseIssueRef, unlinkIssue } from '../tracker/links';
 import { actorOf, listMembers, parseMemberInput, ROLES, updateMember, upsertMember, type MemberInput } from '../tracker/people';
 import { getSummary, listSprints, personalSummary, resolveSprintKey } from '../tracker/sprints';
@@ -250,6 +251,21 @@ const declarations: ToolDeclaration[] = [
     },
   },
   {
+    name: 'link_doc',
+    description:
+      'Link a Google Doc, Sheet, Slides deck or other Drive file to a task, by its docs.google.com / drive.google.com URL or a Lab Drive file id (from search_drive or list_drive_folder).',
+    parameters: {
+      type: 'object',
+      properties: { task_id: TASK_ID, url: { type: 'string', description: 'The Google Docs / Drive link.' }, file_id: { type: 'string', description: 'A Drive file id, instead of url.' } },
+      required: ['task_id'],
+    },
+  },
+  {
+    name: 'unlink_doc',
+    description: "Remove a linked Google Doc or Drive file from a task (the file itself is not touched). Use the doc's doc_id from get_task.",
+    parameters: { type: 'object', properties: { task_id: TASK_ID, doc_id: { type: 'integer' } }, required: ['task_id', 'doc_id'] },
+  },
+  {
     name: 'create_issue_from_task',
     description: 'Open a GitHub issue in a lab repo from a task (its title, description and assignee) and link it. This posts to GitHub: only when the member asks for it.',
     parameters: {
@@ -283,6 +299,8 @@ function taskView(t: Task) {
     latest_updates: t.updates.slice(0, 3).map((u) => ({ id: u.id, author: u.author, body: u.body, at: u.created_at })),
     update_count: t.updates.length,
     links: t.links.map((l) => ({ link_id: l.id, ref: `${l.repo}#${l.number}`, kind: l.kind, title: l.title, state: l.state, merged: l.merged })),
+    // in_lab docs can be read with read_drive_file(file_id).
+    docs: t.docs.map((d) => ({ doc_id: d.id, file_id: d.file_id, name: d.name, mime_type: d.mime_type, url: d.url, in_lab: d.in_lab })),
     linked_commit_count: t.commits.length,
     created_at: t.created_at,
     updated_at: t.updated_at,
@@ -487,6 +505,23 @@ const handlers: Record<string, Handler> = {
     return { unlinked: `${link.repo}#${link.number}`, task: taskView(task) };
   },
 
+  link_doc: async (args, ctx) => {
+    const ref = parseDocRef(args.file_id ? { file_id: args.file_id } : { url: args.url });
+    const task = await linkDoc(Number(args.task_id), ref, ctx.user.id, actorOf(ctx.user));
+    const doc = task.docs.find((d) => d.file_id === ref.file_id)!;
+    ctx.actions.push({ op: 'update', task_id: task.id, title: task.title, detail: 'linked doc' });
+    return { linked: doc.name, readable_with_read_drive_file: doc.in_lab, task: taskView(task) };
+  },
+
+  unlink_doc: (args, ctx) => {
+    const current = requireTask(Number(args.task_id));
+    const doc = current.docs.find((d) => d.id === Number(args.doc_id));
+    if (!doc) return { error: `${current.ref} has no linked doc ${args.doc_id}` };
+    const task = unlinkDoc(current.id, doc.id);
+    ctx.actions.push({ op: 'update', task_id: task.id, title: task.title, detail: 'unlinked doc' });
+    return { unlinked: doc.name, task: taskView(task) };
+  },
+
   create_issue_from_task: async (args, ctx) => {
     const task = await createIssueForTask(Number(args.task_id), { repo: args.repo, labels: args.labels }, actorOf(ctx.user));
     const link = task.links.at(-1);
@@ -546,7 +581,10 @@ function summarize(name: string, r: ToolResult): string | undefined {
     case 'delete_update':
       return `deleted from ${r.deleted_from}`;
     case 'unlink_issue':
+    case 'unlink_doc':
       return `unlinked ${r.unlinked}`;
+    case 'link_doc':
+      return `linked "${r.linked}"`;
     case 'create_issue_from_task':
       return `opened ${(r.issue as { ref: string } | null)?.ref ?? 'issue'}`;
     case 'delete_task':
@@ -574,7 +612,9 @@ function view(name: string, r: ToolResult): ToolView | null | undefined {
     case 'set_subtask_done':
     case 'delete_subtask':
     case 'link_issue':
-    case 'unlink_issue': {
+    case 'unlink_issue':
+    case 'link_doc':
+    case 'unlink_doc': {
       const t = (r.created ?? r.task) as TaskViewRow | undefined;
       return t && typeof t === 'object' ? { kind: 'tasks', total: 1, items: [taskItem(t)] } : null;
     }

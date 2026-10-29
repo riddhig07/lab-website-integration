@@ -218,6 +218,25 @@ export async function download(id: string): Promise<Download> {
   };
 }
 
+/**
+ * Any file the service account can see (shared with it, not only in the lab
+ * folder) and whether it's inside the lab folder; null when it can't see it.
+ */
+export async function fileMeta(id: string): Promise<{ item: DriveItem; inLab: boolean } | null> {
+  if (!driveEnabled) return null;
+  try {
+    const f = (await (await drive(`files/${encodeURIComponent(id)}`, { fields: FILE_FIELDS })).json()) as RawFile;
+    const inLab = await pathTo(id).then(
+      () => true,
+      () => false,
+    );
+    return { item: toItem(f), inLab };
+  } catch (err) {
+    if (err instanceof DriveError && err.status === 404) return null;
+    throw err;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Search and reading, for the portal's assistant
 

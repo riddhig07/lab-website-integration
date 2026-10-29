@@ -3,6 +3,7 @@ import type { Task, TaskStatus } from '../types';
 import { errorText, STATUS_LABELS, STATUSES, tracker, useTracker } from './api';
 import { SubtaskProgress } from './SubtaskList';
 import { GithubPills, TaskBadges } from './TaskCard';
+import { DocPills } from './TaskDocs';
 
 interface Props {
   tasks: Task[];
@@ -67,6 +68,7 @@ export function TaskTable({ tasks, archived, sprintNames, empty }: Props) {
                 <td>
                   <span className="badges">
                     <GithubPills task={t} />
+                    <DocPills task={t} />
                   </span>
                 </td>
                 <td onClick={(e) => e.stopPropagation()}>

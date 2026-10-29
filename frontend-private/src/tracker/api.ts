@@ -2,6 +2,7 @@ import { createContext, useContext } from 'react';
 import { api } from '../api';
 import type {
   CurrentSprint,
+  DriveItem,
   Member,
   MemberStats,
   OverallStats,
@@ -75,6 +76,9 @@ export const tracker = {
 
   linkIssue: (id: number, url: string) => api<Task>(`${base}/tasks/${id}/links`, { method: 'POST', body: { url } }),
   unlinkIssue: (id: number, linkId: number) => api<Task>(`${base}/tasks/${id}/links/${linkId}`, { method: 'DELETE' }),
+  linkDoc: (id: number, ref: { url: string } | { file_id: string }) => api<Task>(`${base}/tasks/${id}/docs`, { method: 'POST', body: ref }),
+  unlinkDoc: (id: number, docId: number) => api<Task>(`${base}/tasks/${id}/docs/${docId}`, { method: 'DELETE' }),
+  searchDrive: (q: string) => api<(DriveItem & { path: string })[]>(`/internal/drive/search?${new URLSearchParams({ q })}`),
   createIssue: (id: number, repo: string) => api<Task>(`${base}/tasks/${id}/create-issue`, { method: 'POST', body: { repo } }),
 
   sync: (force = false) => api<SyncResult>(`${base}/sync`, { method: 'POST', body: { force } }),

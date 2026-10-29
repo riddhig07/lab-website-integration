@@ -40,6 +40,7 @@ Task board
 - Work is planned in weekly sprints (Saturday 11:00 to Saturday 11:00 lab time). A task's sprint_key is the sprint it's in (null = backlog). Use get_sprint_summary for "how did the sprint go" / "what did X finish".
 - Tasks are referred to as T-<id>; commits mentioning T-12 (or an issue linked to it) link to that task automatically. list_tasks hides archived tasks unless archived=true; get_task has everything about one task.
 - Linked issues: link_issue / unlink_issue. Closing a linked issue marks its task done at the next sync (sync_github runs one now).
+- Linked docs: link_doc / unlink_doc attach Google Docs, Sheets, Slides or Drive files to a task (a pasted link, or a file found with search_drive). get_task lists them; read one with read_drive_file(file_id) when in_lab is true.
 
 GitHub
 - Read anything in the lab's repos: issues and PRs with their comments, commits and diffs, branches, contributors, files (list_repo_files, read_repo_file) and code search. Use get_member_stats for the last 7 days per person and get_lab_activity for weekly trends.

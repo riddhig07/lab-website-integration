@@ -3,8 +3,10 @@ import { requireRole } from '../auth/session';
 import { config } from '../config';
 import { db } from '../db';
 import { githubAppEnabled, GitHubError } from '../github/app';
+import { DriveError } from '../google/drive';
 import { notifyAssignments } from '../slack/assignments';
 import { listSlackUsers, slackEnabled } from '../slack/client';
+import { linkDoc, parseDocRef, unlinkDoc } from '../tracker/docs';
 import { createIssueForTask, linkIssue, parseIssueRef, unlinkIssue } from '../tracker/links';
 import { actorOf, getMember, listMembers, memberByLogin, parseMemberInput, ROLES, updateMember, upsertMember, type MemberInput } from '../tracker/people';
 import { applyPlan, parsePlan, planningFor } from '../tracker/planning';
@@ -205,6 +207,15 @@ trackerRouter.delete('/tasks/:id/links/:lid', (req, res) => {
   res.json(unlinkIssue(idParam(req), idParam(req, 'lid')));
 });
 
+/** Links a Google Doc or Drive file: { url } or { file_id }. */
+trackerRouter.post('/tasks/:id/docs', async (req, res) => {
+  res.status(201).json(await linkDoc(idParam(req), parseDocRef(req.body), res.locals.user!.id, actor(res)));
+});
+
+trackerRouter.delete('/tasks/:id/docs/:did', (req, res) => {
+  res.json(unlinkDoc(idParam(req), idParam(req, 'did')));
+});
+
 /** Opens a GitHub issue for the task in { repo } and links it. */
 trackerRouter.post('/tasks/:id/create-issue', async (req, res) => {
   res.status(201).json(await createIssueForTask(idParam(req), req.body, actor(res)));
@@ -272,7 +283,7 @@ trackerRouter.post('/sprints/:key/plan', (req, res) => {
 
 const trackerErrors: ErrorRequestHandler = (err, _req, res, next) => {
   if (err instanceof SprintError) err = new TrackerError(400, err.message);
-  if (!(err instanceof TrackerError) && !(err instanceof GitHubError)) return next(err);
+  if (!(err instanceof TrackerError) && !(err instanceof GitHubError) && !(err instanceof DriveError)) return next(err);
   if (err.status >= 500) console.error('[tracker]', err.message);
   if (res.headersSent) {
     res.end();
