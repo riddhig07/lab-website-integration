@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Dialog } from '../Dialog';
-import type { Member, MemberRole } from '../types';
+import type { Member, MemberRole, SlackUser } from '../types';
 import { errorText, ROLE_LABELS, ROLES, tracker, useTracker } from './api';
 
 interface Props {
@@ -21,6 +21,8 @@ export function MemberDialog({ open, onClose, member, prefill, onSaved }: Props)
   const [active, setActive] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // null until loaded; empty when Slack isn't set up (then the id is typed in).
+  const [slackUsers, setSlackUsers] = useState<SlackUser[] | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -30,7 +32,21 @@ export function MemberDialog({ open, onClose, member, prefill, onSaved }: Props)
     setSlack(member?.slack_user_id ?? '');
     setActive(member?.active ?? true);
     setError(null);
+    if (slackUsers) return;
+    tracker
+      .slackUsers()
+      .then(setSlackUsers)
+      .catch(() => setSlackUsers([]));
   }, [open, member]);
+
+  // An unlinked member whose name matches exactly one Slack account starts on it.
+  useEffect(() => {
+    if (!open || !slackUsers || member?.slack_user_id) return;
+    const full = (member?.name ?? prefill?.name ?? '').trim().toLowerCase();
+    const matches = full ? slackUsers.filter((u) => u.name.trim().toLowerCase() === full) : [];
+    if (matches.length === 1) setSlack(matches[0].id);
+  }, [open, slackUsers, member]);
+  const slackKnown = !slack || slackUsers?.some((u) => u.id === slack);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -92,12 +108,24 @@ export function MemberDialog({ open, onClose, member, prefill, onSaved }: Props)
             </select>
           </div>
           <div className="field">
-            <label htmlFor="m-slack">Slack member ID</label>
-            <input id="m-slack" value={slack} onChange={(e) => setSlack(e.target.value)} placeholder="U0123ABCD (optional)" />
+            <label htmlFor="m-slack">Slack account</label>
+            {slackUsers && slackUsers.length > 0 ? (
+              <select id="m-slack" value={slack} onChange={(e) => setSlack(e.target.value)}>
+                <option value="">Not linked</option>
+                {!slackKnown && <option value={slack}>{slack}</option>}
+                {slackUsers.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input id="m-slack" value={slack} onChange={(e) => setSlack(e.target.value)} placeholder="Member ID, U0123ABCD (optional)" />
+            )}
           </div>
         </div>
         <p className="muted small">
-          The Slack ID (Slack profile → ⋮ → Copy member ID) lets the weekly posts mention them and remind them to post updates.
+          With a Slack account linked, they get a Slack DM when someone else assigns them a task or subtask, and the weekly posts mention them and remind them to post updates.
         </p>
         {member && config.me.is_admin && (
           <label className="checkbox">

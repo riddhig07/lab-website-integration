@@ -7,6 +7,7 @@ import { createIssueForTask, linkIssue, parseIssueRef, unlinkIssue } from '../tr
 import { actorOf, listMembers, parseMemberInput, ROLES, updateMember, upsertMember, type MemberInput } from '../tracker/people';
 import { getSummary, listSprints, personalSummary, resolveSprintKey } from '../tracker/sprints';
 import { memberStats, overall } from '../tracker/stats';
+import { notifyAssignments } from '../slack/assignments';
 import { relinkCommits, runSync } from '../tracker/sync';
 import {
   addSubtask,
@@ -404,6 +405,7 @@ const handlers: Record<string, Handler> = {
     // Default: the current sprint for assigned work, else the backlog.
     if (args.sprint === undefined) fields.sprint_key = fields.assignee ? resolveSprintKey('current') : null;
     const task = createTask(fields, parseSubtasks(args.subtasks), actorOf(ctx.user));
+    notifyAssignments(null, task, actorOf(ctx.user));
     if (!NON_CODE_TYPES.has(task.task_type)) relinkCommits();
     ctx.actions.push({ op: 'create', task_id: task.id, title: task.title });
     return { created: taskView(task) };
@@ -412,7 +414,9 @@ const handlers: Record<string, Handler> = {
   update_task: (args, ctx) => {
     const id = Number(args.task_id);
     const fields = taskFields(args, true);
-    const { task, titleChanged } = patchTask(requireTask(id).id, fields);
+    const before = requireTask(id);
+    const { task, titleChanged } = patchTask(before.id, fields);
+    notifyAssignments(before, task, actorOf(ctx.user));
     if (titleChanged && !NON_CODE_TYPES.has(task.task_type)) relinkCommits();
     ctx.actions.push({ op: 'update', task_id: id, title: task.title, detail: Object.keys(fields).join(', ') });
     return { updated: Object.keys(fields), task: taskView(task) };
@@ -420,14 +424,18 @@ const handlers: Record<string, Handler> = {
 
   add_subtasks: (args, ctx) => {
     const id = Number(args.task_id);
-    let task = requireTask(id);
+    const before = requireTask(id);
+    let task = before;
     for (const s of parseSubtasks(args.subtasks)) task = addSubtask(id, s);
+    notifyAssignments(before, task, actorOf(ctx.user));
     ctx.actions.push({ op: 'update', task_id: id, title: task.title, detail: 'subtasks' });
     return { task: taskView(task) };
   },
 
   assign_subtask: (args, ctx) => {
-    const task = patchSubtask(Number(args.task_id), Number(args.subtask_id), { assignee: args.assignee ?? null }, actorOf(ctx.user));
+    const before = requireTask(Number(args.task_id));
+    const task = patchSubtask(before.id, Number(args.subtask_id), { assignee: args.assignee ?? null }, actorOf(ctx.user));
+    notifyAssignments(before, task, actorOf(ctx.user));
     ctx.actions.push({ op: 'update', task_id: task.id, title: task.title, detail: 'subtask assignee' });
     return { task: taskView(task) };
   },

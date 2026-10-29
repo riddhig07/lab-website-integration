@@ -243,6 +243,11 @@ export interface Task {
   commit_authors: { login: string | null; name: string; count: number; merged: number; unmerged: number }[];
 }
 
+export interface SlackUser {
+  id: string;
+  name: string;
+}
+
 export interface TrackerConfig {
   ai_enabled: boolean;
   github_enabled: boolean;
