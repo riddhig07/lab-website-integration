@@ -52,6 +52,11 @@ export const config = {
     // The lab's Drive folder, shown in the portal's file explorer. The
     // service account must have access to it.
     driveFolderId: env.GOOGLE_DRIVE_FOLDER_ID?.trim() ?? '',
+    // OAuth client ("Lab Portal Drive uploads", internal to ucsc.edu) that
+    // members connect their own Google account through to upload to the lab
+    // folder. Without it, Lab Drive stays read-only.
+    oauthClientId: env.GOOGLE_OAUTH_CLIENT_ID?.trim() ?? '',
+    oauthClientSecret: env.GOOGLE_OAUTH_CLIENT_SECRET?.trim() ?? '',
   },
 };
 

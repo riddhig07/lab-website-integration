@@ -489,6 +489,117 @@ body {
   white-space: nowrap;
 }
 
+/* Lab Drive uploads */
+.portal .drive-actions {
+  flex: none;
+  justify-content: flex-end;
+}
+
+.portal .drive-actions button,
+.portal .drive-actions a.button {
+  white-space: nowrap;
+}
+
+.portal p.drive-account {
+  margin-top: 0.3rem;
+}
+
+.portal .drive-main {
+  position: relative;
+}
+
+.portal .drive-main.dragging {
+  outline: 2px dashed var(--accent);
+  outline-offset: 4px;
+  border-radius: 8px;
+}
+
+.portal .drop-hint {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  min-height: 8rem;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel) 85%, transparent);
+  color: var(--accent);
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.portal .upload-list {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.6rem 0.8rem;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+
+.portal .upload-list-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.35rem;
+}
+
+.portal .upload-list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-height: 14rem;
+  overflow-y: auto;
+}
+
+.portal .upload-list li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.15rem 0.75rem;
+  align-items: center;
+}
+
+.portal .upload-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.portal .upload-status {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.portal .upload-done .upload-status {
+  color: var(--ok);
+}
+
+.portal .upload-error .upload-status {
+  color: var(--danger);
+}
+
+.portal .upload-bar,
+.portal .upload-message {
+  grid-column: 1 / -1;
+}
+
+.portal .upload-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--chart-grid);
+  overflow: hidden;
+}
+
+.portal .upload-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+
 /* ---------------------------------------------------------------------------
    Shared pieces for the task board and repository pages */
 

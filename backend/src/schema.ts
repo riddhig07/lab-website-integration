@@ -226,4 +226,14 @@ CREATE TABLE IF NOT EXISTS tracker_notifications (
   sent_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   PRIMARY KEY (kind, key)
 );
+
+-- A member's own Google account, connected to upload to Lab Drive. The
+-- refresh token is encrypted (google/userAuth.ts).
+CREATE TABLE IF NOT EXISTS google_accounts (
+  user_id       INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  email         TEXT NOT NULL,
+  refresh_token TEXT NOT NULL,
+  scope         TEXT NOT NULL,
+  connected_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
 `;

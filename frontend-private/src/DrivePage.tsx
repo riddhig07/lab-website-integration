@@ -1,7 +1,16 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router';
-import { api } from './api';
+import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react';
+import { Link, useParams, useSearchParams } from 'react-router';
+import { api, ApiError } from './api';
+import { Dialog } from './Dialog';
+import { connectUrl, UploadList, useDriveAccount, useUploader } from './DriveUploads';
 import type { DriveFolder, DriveItem } from './types';
+
+const GOOGLE_RESULTS: Record<string, { text: string; error?: boolean }> = {
+  connected: { text: 'Google account connected. You can upload to Lab Drive now.' },
+  cancelled: { text: 'Google connection cancelled.', error: true },
+  failed: { text: "Couldn't connect your Google account. Try again, and allow Google Drive access.", error: true },
+  unavailable: { text: 'Uploads are not set up on this site yet.', error: true },
+};
 
 // Google types the backend can export for download (google/drive.ts EXPORTS).
 const EXPORTABLE = new Set([
@@ -19,16 +28,23 @@ const driveUrl = (id: string) => `https://drive.google.com/drive/folders/${id}`;
 type Folders = Record<string, DriveFolder>;
 
 /**
- * /drive and /drive/:folderId: a read-only explorer for the lab's Google
- * Drive folder. Folder listings are kept for the life of the page, so the
- * tree and the main pane share them.
+ * /drive and /drive/:folderId: an explorer for the lab's Google Drive folder.
+ * Everyone can browse and download; members who connect their Google account
+ * can upload files and add folders. Folder listings are kept for the life of
+ * the page, so the tree and the main pane share them.
  */
 export function DrivePage() {
   const { folderId = 'root' } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [folders, setFolders] = useState<Folders>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState('');
+  const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const [newFolder, setNewFolder] = useState<{ open: boolean; name: string; busy: boolean; error: string | null }>({ open: false, name: '', busy: false, error: null });
+  const fileInput = useRef<HTMLInputElement>(null);
+  const { account, reload: reloadAccount } = useDriveAccount();
 
   const load = useCallback((id: string) => {
     api<DriveFolder>(`/internal/drive/folders/${encodeURIComponent(id)}`)
@@ -62,9 +78,59 @@ export function DrivePage() {
       return next;
     });
 
+  // Back from Google's consent screen: say how it went, then tidy the URL.
+  useEffect(() => {
+    const result = searchParams.get('google');
+    if (!result) return;
+    setNotice(GOOGLE_RESULTS[result] ?? null);
+    reloadAccount();
+    setSearchParams({}, { replace: true });
+  }, [searchParams, setSearchParams, reloadAccount]);
+
+  const { uploads, add, clearFinished } = useUploader(load, reloadAccount);
+
   const error = errors[folderId] ?? errors.root;
   const currentId = current?.path[current.path.length - 1].id;
   const items = current?.items.filter((i) => i.name.toLowerCase().includes(filter.trim().toLowerCase())) ?? [];
+  const canUpload = Boolean(account?.uploads_enabled && account.email && currentId);
+  const here = `/drive${folderId === 'root' ? '' : `/${folderId}`}`;
+
+  const upload = (files: FileList | File[]) => {
+    if (currentId && files.length) add([...files], currentId);
+  };
+
+  const onDrop = (e: DragEvent) => {
+    e.preventDefault();
+    setDragging(false);
+    if (!canUpload) {
+      setNotice({ text: 'Connect your Google account to upload.', error: true });
+      return;
+    }
+    // Folders can't be uploaded from a drop; only files are taken.
+    const entries = [...e.dataTransfer.items].map((i) => i.webkitGetAsEntry?.());
+    const files = [...e.dataTransfer.files].filter((_, i) => !entries[i]?.isDirectory);
+    if (files.length < e.dataTransfer.files.length) setNotice({ text: 'Folders were skipped: create the folder with “New folder”, then drop its files in.', error: true });
+    upload(files);
+  };
+
+  const createFolder = async () => {
+    if (!currentId) return;
+    setNewFolder((f) => ({ ...f, busy: true, error: null }));
+    try {
+      await api(`/internal/drive/folders/${encodeURIComponent(currentId)}/folders`, { method: 'POST', body: { name: newFolder.name } });
+      setNewFolder({ open: false, name: '', busy: false, error: null });
+      load(currentId);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409) reloadAccount();
+      setNewFolder((f) => ({ ...f, busy: false, error: err instanceof Error ? err.message : String(err) }));
+    }
+  };
+
+  const disconnect = async () => {
+    await api('/internal/drive/account', { method: 'DELETE' }).catch(() => undefined);
+    reloadAccount();
+    setNotice({ text: 'Google account disconnected.' });
+  };
 
   return (
     <>
@@ -73,17 +139,92 @@ export function DrivePage() {
           <h1>Lab Drive</h1>
           <p className="muted">
             The {root ? `“${root.path[0].name}”` : 'lab'} Google Drive folder. Downloads work for every portal member;
-            “Open in Drive” needs access to the folder in Google Drive.
+            uploading and “Open in Drive” need your Google account to have access to the folder.
           </p>
+          {account?.email && (
+            <p className="muted small drive-account">
+              Uploading as <strong>{account.email}</strong> ·{' '}
+              <button type="button" className="link small" onClick={() => void disconnect()}>
+                Disconnect
+              </button>
+            </p>
+          )}
         </div>
-        {currentId && (
-          <a className="button secondary" href={driveUrl(currentId)} target="_blank" rel="noreferrer">
-            Open folder in Drive
-          </a>
-        )}
+        <div className="button-row drive-actions">
+          {currentId && (
+            <a className="button secondary" href={driveUrl(currentId)} target="_blank" rel="noreferrer">
+              Open in Drive
+            </a>
+          )}
+          {account?.uploads_enabled && !account.email && (
+            <a className="button" href={connectUrl(here)} title="Upload as your own Google account">
+              Connect Google to upload
+            </a>
+          )}
+          {canUpload && (
+            <>
+              <button type="button" className="secondary" onClick={() => setNewFolder({ open: true, name: '', busy: false, error: null })}>
+                New folder
+              </button>
+              <button type="button" onClick={() => fileInput.current?.click()}>
+                Upload files
+              </button>
+              <input
+                ref={fileInput}
+                type="file"
+                multiple
+                hidden
+                onChange={(e) => {
+                  if (e.target.files) upload(e.target.files);
+                  e.target.value = '';
+                }}
+              />
+            </>
+          )}
+        </div>
       </div>
 
+      {notice && (
+        <p className={`notice ${notice.error ? 'bad' : 'ok'}`} role="status">
+          {notice.text}{' '}
+          <button type="button" className="link small" onClick={() => setNotice(null)}>
+            Dismiss
+          </button>
+        </p>
+      )}
       {error && <p className="error">{error}</p>}
+      <UploadList uploads={uploads} onClear={clearFinished} />
+
+      <Dialog
+        open={newFolder.open}
+        onClose={() => setNewFolder((f) => ({ ...f, open: false }))}
+        title="New folder"
+        subtitle={current ? `In ${current.path.map((p) => p.name).join(' / ')}` : undefined}
+        footer={
+          <div className="button-row">
+            <button type="submit" form="new-folder" disabled={newFolder.busy || !newFolder.name.trim()}>
+              {newFolder.busy ? 'Creating…' : 'Create'}
+            </button>
+            <button type="button" className="secondary" onClick={() => setNewFolder((f) => ({ ...f, open: false }))}>
+              Cancel
+            </button>
+          </div>
+        }
+      >
+        <form
+          id="new-folder"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void createFolder();
+          }}
+        >
+          <div className="field">
+            <label htmlFor="new-folder-name">Name</label>
+            <input id="new-folder-name" autoFocus value={newFolder.name} maxLength={255} onChange={(e) => setNewFolder((f) => ({ ...f, name: e.target.value }))} />
+          </div>
+          {newFolder.error && <p className="error small">{newFolder.error}</p>}
+        </form>
+      </Dialog>
 
       <div className="drive">
         <nav className="drive-tree" aria-label="Folders">
@@ -102,7 +243,24 @@ export function DrivePage() {
           )}
         </nav>
 
-        <section className="drive-main">
+        <section
+          className={`drive-main${dragging ? ' dragging' : ''}`}
+          onDragOver={(e) => {
+            if (!e.dataTransfer.types.includes('Files')) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = canUpload ? 'copy' : 'none';
+            setDragging(true);
+          }}
+          onDragLeave={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false);
+          }}
+          onDrop={onDrop}
+        >
+          {dragging && (
+            <div className="drop-hint" aria-hidden="true">
+              {canUpload ? `Drop to upload to “${current?.path.at(-1)?.name ?? 'this folder'}”` : 'Connect your Google account to upload'}
+            </div>
+          )}
           {current && (
             <>
               <div className="drive-toolbar">
@@ -124,7 +282,7 @@ export function DrivePage() {
               </div>
 
               {current.items.length === 0 ? (
-                <p className="muted">This folder is empty.</p>
+                <p className="muted">This folder is empty.{canUpload && ' Drop files here to upload them.'}</p>
               ) : items.length === 0 ? (
                 <p className="muted">Nothing matches “{filter}”.</p>
               ) : (

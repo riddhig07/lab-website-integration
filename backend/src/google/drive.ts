@@ -5,9 +5,9 @@
 import { createSign } from 'node:crypto';
 import { config } from '../config';
 
-const FOLDER = 'application/vnd.google-apps.folder';
+export const FOLDER = 'application/vnd.google-apps.folder';
 const SHORTCUT = 'application/vnd.google-apps.shortcut';
-const FILE_FIELDS = 'id,name,mimeType,size,modifiedTime,iconLink,webViewLink,shortcutDetails';
+export const FILE_FIELDS = 'id,name,mimeType,size,modifiedTime,iconLink,webViewLink,shortcutDetails';
 
 const { serviceAccountKey, driveFolderId: rootId } = config.google;
 
@@ -85,7 +85,7 @@ async function drive(path: string, params: Record<string, string> = {}): Promise
 // ---------------------------------------------------------------------------
 // Folder tree
 
-interface RawFile {
+export interface RawFile {
   id: string;
   name: string;
   mimeType: string;
@@ -97,7 +97,7 @@ interface RawFile {
   shortcutDetails?: { targetId: string };
 }
 
-function toItem(f: RawFile): DriveItem {
+export function toItem(f: RawFile): DriveItem {
   return {
     id: f.id,
     name: f.name,
@@ -144,6 +144,12 @@ export async function pathTo(id: string): Promise<PathEntry[]> {
 }
 
 export const driveRootId = () => rootId;
+
+/** 404 unless `id` is a folder inside the lab folder. */
+export async function assertLabFolder(id: string): Promise<void> {
+  await pathTo(id);
+  if (!(await node(id)).isFolder) throw new DriveError(404, 'Not a folder');
+}
 
 /** Everything directly inside a folder: folders first, then by name. Checked against the root first. */
 export async function listFolder(id: string): Promise<{ path: PathEntry[]; items: DriveItem[] }> {

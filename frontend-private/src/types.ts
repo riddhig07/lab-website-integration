@@ -56,6 +56,13 @@ export interface DriveFolder {
   items: DriveItem[];
 }
 
+/** GET /api/internal/drive/account: uploads go through the member's own Google account. */
+export interface DriveAccount {
+  uploads_enabled: boolean;
+  /** The connected Google account, or null. */
+  email: string | null;
+}
+
 // GitHub, through the lab's GitHub App (GET /api/internal/github/...)
 export interface RepoSummary {
   name: string;

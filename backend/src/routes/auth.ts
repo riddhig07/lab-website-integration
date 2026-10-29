@@ -5,6 +5,7 @@ import { authorizeUrl, fetchLogin, fetchOrgRole, githubEnabled, githubRole } fro
 import { verifyPassword } from '../auth/password';
 import { createSession, destroySession, getSessionUser } from '../auth/session';
 import { db } from '../db';
+import { connectAccount, googleAuthorizeUrl, googleUploadsEnabled } from '../google/userAuth';
 
 export const authRouter = Router();
 
@@ -109,6 +110,60 @@ authRouter.get('/github/callback', async (req, res) => {
   // can't outlive it.
   createSession(res, id, login.tokenExpiresAt);
   res.redirect(`/portal${safePortalPath(saved.from)}`);
+});
+
+// ---------------------------------------------------------------------------
+// Connecting a member's own Google account, for Lab Drive uploads. Not a way
+// to sign in: the member must already have a portal session.
+
+const GOOGLE_COOKIE = 'lab_google_oauth';
+
+authRouter.get('/google', async (req, res) => {
+  const from = safePortalPath(typeof req.query.from === 'string' ? req.query.from : '/drive');
+  const user = await getSessionUser(req);
+  if (!user) {
+    res.redirect(`${LOGIN_PAGE}?${new URLSearchParams({ from })}`);
+    return;
+  }
+  if (!googleUploadsEnabled) {
+    res.redirect(`/portal${from}?google=unavailable`);
+    return;
+  }
+  const state = randomBytes(32).toString('base64url');
+  res.cookie(GOOGLE_COOKIE, JSON.stringify({ state, from }), {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: config.isProd,
+    maxAge: 10 * 60 * 1000,
+    path: '/api/auth/google',
+  });
+  res.redirect(googleAuthorizeUrl(state, user.email ?? undefined));
+});
+
+authRouter.get('/google/callback', async (req, res) => {
+  const saved = parseOAuthCookie(req.cookies?.[GOOGLE_COOKIE]);
+  res.clearCookie(GOOGLE_COOKIE, { path: '/api/auth/google' });
+  const back = (result: string) => `/portal${safePortalPath(saved?.from ?? '/drive')}?google=${result}`;
+
+  const user = await getSessionUser(req);
+  const { code, state } = req.query;
+  if (!user || !saved || typeof state !== 'string' || !sameString(state, saved.state)) {
+    res.redirect(back('failed'));
+    return;
+  }
+  if (typeof code !== 'string') {
+    // Cancelled on Google's consent screen.
+    res.redirect(back('cancelled'));
+    return;
+  }
+  try {
+    const email = await connectAccount(user.id, code);
+    console.log(`[auth] ${user.github_login ?? user.email} connected Google account ${email} for Drive uploads.`);
+    res.redirect(back('connected'));
+  } catch (err) {
+    console.error('[auth] Google connect failed:', err instanceof Error ? err.message : err);
+    res.redirect(back('failed'));
+  }
 });
 
 authRouter.post('/logout', (req, res) => {

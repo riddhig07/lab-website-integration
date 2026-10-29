@@ -55,6 +55,12 @@ export default defineRailway(() => {
       // It sees only what is shared with it (read-only). The key (base64
       // JSON) is a secret.
       GOOGLE_SERVICE_ACCOUNT_KEY: preserve(),
+      // OAuth client "Lab Portal Drive uploads" (same Cloud project, Internal:
+      // ucsc.edu accounts only). Members connect their own Google account
+      // through it to upload to Lab Drive; the service account can't, since
+      // the folder is in a user's My Drive. Both are secrets.
+      GOOGLE_OAUTH_CLIENT_ID: preserve(),
+      GOOGLE_OAUTH_CLIENT_SECRET: preserve(),
       // The "Nath Lab" Drive folder, browsable in the portal's Lab Drive page.
       GOOGLE_DRIVE_FOLDER_ID: '1trCaDHYPd9_ELgNx0JEd68qw0sJsp8cY',
     },
