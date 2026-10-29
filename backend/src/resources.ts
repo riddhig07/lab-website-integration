@@ -93,3 +93,11 @@ export const RESOURCE_DEFS = {
 } satisfies Record<string, ResourceDef>;
 
 export type ResourceKey = keyof typeof RESOURCE_DEFS;
+
+/** How each content type is listed. */
+export const CONTENT_ORDER_BY: Record<ResourceKey, string> = {
+  people: 'sort_order, name',
+  publications: 'year DESC, id DESC',
+  news: 'published_at DESC, id DESC',
+  resources: 'category, title',
+};

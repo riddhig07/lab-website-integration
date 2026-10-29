@@ -3,6 +3,7 @@ import { Link, NavLink, Outlet, useOutletContext } from 'react-router';
 import { api } from './api';
 import type { ResourceDef } from './types';
 import { useAuth } from './auth';
+import { Assistant } from './assistant/Assistant';
 
 /** Content definitions loaded by the portal layout, available to every portal page. */
 export function useDefinitions(): ResourceDef[] {
@@ -41,6 +42,10 @@ export function Layout() {
           </NavLink>
           {defs && navGroup('Public content', defs.filter((d) => d.public))}
           {defs && navGroup('Internal', defs.filter((d) => !d.public))}
+          <NavLink to="/drive">Lab Drive</NavLink>
+          <div className="nav-heading">Projects</div>
+          <NavLink to="/tracker">Task Board</NavLink>
+          <NavLink to="/repos">Repositories</NavLink>
         </nav>
         <div className="sidebar-footer">
           <a href="/">View public site</a>
@@ -59,6 +64,7 @@ export function Layout() {
         {error && <p className="error">{error}</p>}
         {defs ? <Outlet context={defs} /> : !error && <p className="muted">Loading…</p>}
       </main>
+      <Assistant />
     </div>
   );
 }

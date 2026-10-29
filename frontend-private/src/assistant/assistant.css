@@ -1,0 +1,714 @@
+/* The floating assistant: a button at the bottom right and its chat panel. */
+
+.portal .assistant-fab {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  border-radius: 50%;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.25);
+  transition: transform 0.15s ease;
+}
+
+.portal .assistant-fab:hover {
+  transform: scale(1.06);
+}
+
+.portal .assistant-fab-dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--ok);
+  border: 2px solid var(--accent);
+}
+
+.portal .assistant-panel {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  width: min(460px, calc(100vw - 32px));
+  height: min(700px, calc(100vh - 48px));
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 16px 48px rgb(0 0 0 / 0.3);
+  overflow: hidden;
+}
+
+.portal .assistant-panel.expanded {
+  width: min(880px, calc(100vw - 48px));
+  height: calc(100vh - 48px);
+}
+
+@media (max-width: 560px) {
+  .portal .assistant-fab {
+    right: 16px;
+    bottom: 16px;
+  }
+
+  .portal .assistant-panel,
+  .portal .assistant-panel.expanded {
+    inset: 0;
+    width: auto;
+    height: auto;
+    border-radius: 0;
+    border: none;
+  }
+
+  .portal .assistant-expand {
+    display: none;
+  }
+}
+
+.portal .assistant-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 0.9rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.portal .assistant-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  flex: none;
+}
+
+.portal .icon-button {
+  background: none;
+  border: none;
+  color: var(--muted);
+  padding: 0.2rem 0.45rem;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.portal .icon-button:hover {
+  color: var(--fg);
+}
+
+.portal .assistant-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.portal .assistant-empty {
+  margin: auto 0;
+}
+
+.portal .assistant-suggestions {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.portal .assistant-suggestions button {
+  text-align: left;
+  font-size: 0.88rem;
+}
+
+.portal .assistant-user {
+  align-self: flex-end;
+  max-width: 85%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-radius: 12px 12px 4px 12px;
+  padding: 0.45rem 0.75rem;
+}
+
+/* One reply: its steps in the order they happened, on a timeline. */
+.portal .assistant-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 0.9rem;
+  border-left: 2px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.portal .assistant-steps .step {
+  position: relative;
+  min-width: 0;
+}
+
+.portal .assistant-steps .step::before {
+  content: '';
+  position: absolute;
+  left: calc(-0.9rem - 5px);
+  top: 0.65rem;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--panel);
+  border: 2px solid var(--border);
+}
+
+.portal .assistant-steps .step.tool::before {
+  border-color: var(--accent);
+}
+
+.portal .assistant-steps .step.text::before {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.portal .assistant-steps .step.text > :first-child {
+  margin-top: 0;
+}
+
+.portal .assistant-steps .step.text > :last-child {
+  margin-bottom: 0;
+}
+
+.portal .assistant-thinking button {
+  padding: 0.2rem 0;
+  color: var(--muted);
+}
+
+.portal .assistant-thinking p {
+  margin: 0.2rem 0 0;
+  white-space: pre-wrap;
+  font-style: italic;
+}
+
+.portal .assistant-pending {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.portal .assistant-turn-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  margin: 0.45rem 0 0 0.9rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.portal .assistant-tool-trail {
+  flex-basis: 100%;
+}
+
+.portal .assistant-form {
+  border-top: 1px solid var(--border);
+  padding: 0.5rem 0.75rem 0.75rem;
+}
+
+.portal .assistant-context {
+  color: var(--muted);
+  margin-bottom: 0.3rem;
+}
+
+.portal .assistant-input {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+}
+
+.portal .assistant-input textarea {
+  flex: 1;
+  resize: none;
+}
+
+.portal .spinner {
+  display: inline-block;
+  width: 0.8rem;
+  height: 0.8rem;
+  border: 2px solid color-mix(in srgb, currentColor 25%, transparent);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: assistant-spin 0.8s linear infinite;
+  vertical-align: -0.1rem;
+}
+
+@keyframes assistant-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .portal .spinner {
+    animation-duration: 2.4s;
+  }
+}
+
+/* Tool call cards */
+.portal .tool-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg) 60%, var(--panel));
+  overflow: hidden;
+}
+
+.portal .tool-card.is-running {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+}
+
+.portal .tool-card.is-error {
+  border-color: color-mix(in srgb, var(--danger) 50%, var(--border));
+}
+
+.portal .tool-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  background: none;
+  border: none;
+  border-radius: 0;
+  color: var(--fg);
+  text-align: left;
+}
+
+.portal .tool-card-head:disabled {
+  opacity: 1;
+}
+
+.portal .tool-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 1.7rem;
+  height: 1.7rem;
+  border-radius: 7px;
+  color: var(--info);
+  background: color-mix(in srgb, var(--info) 14%, transparent);
+}
+
+.portal .tool-card.cat-write .tool-icon {
+  color: var(--violet);
+  background: color-mix(in srgb, var(--violet) 14%, transparent);
+}
+
+.portal .tool-card.cat-github .tool-icon {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--fg) 10%, transparent);
+}
+
+.portal .tool-card.cat-stats .tool-icon,
+.portal .tool-card.cat-people .tool-icon {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.portal .tool-card.cat-drive .tool-icon {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+}
+
+.portal .tool-card.cat-content .tool-icon {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+}
+
+.portal .tool-title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  line-height: 1.25;
+}
+
+.portal .tool-title strong {
+  font-size: 0.85rem;
+}
+
+.portal .tool-summary {
+  color: var(--muted);
+  font-size: 0.78rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.portal .tool-status {
+  flex: none;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--ok);
+}
+
+.portal .tool-card.is-running .tool-status {
+  color: var(--accent);
+}
+
+.portal .tool-card.is-error .tool-status {
+  color: var(--danger);
+}
+
+.portal .tool-ms,
+.portal .tool-chevron {
+  flex: none;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.portal .tool-args {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  padding: 0 0.6rem 0.45rem 2.85rem;
+}
+
+.portal .tool-arg {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.7rem;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0 0.35rem;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.portal .tool-view {
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+  padding: 0.5rem 0.6rem;
+  font-size: 0.82rem;
+}
+
+.portal .tool-view p {
+  margin: 0;
+}
+
+.portal .tool-more {
+  color: var(--muted);
+  font-size: 0.75rem;
+  margin-top: 0.3rem;
+}
+
+/* Tool views */
+.portal .tv-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.portal .tv-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.2rem 0.45rem;
+  min-width: 0;
+}
+
+.portal .tv-key {
+  flex: none;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.portal span.tv-key {
+  color: var(--muted);
+}
+
+.portal .tv-title {
+  flex: 1 1 10rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.portal .tv-meta {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.portal .tv-people {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.8rem;
+}
+
+.portal .tv-person {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.portal .tv-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.8rem;
+  margin-bottom: 0.4rem;
+  color: var(--fg);
+}
+
+.portal .tv-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.portal .sw {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.portal .sw.s1,
+.portal .seg.s1 {
+  background: var(--series-1);
+}
+
+.portal .sw.s2,
+.portal .seg.s2 {
+  background: var(--series-2);
+}
+
+.portal .tv-bar-row {
+  display: grid;
+  grid-template-columns: minmax(4rem, 7.5rem) 1fr 2rem;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.12rem 0;
+}
+
+.portal .tv-bar-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.portal .tv-bar-track {
+  display: flex;
+  gap: 2px;
+  height: 12px;
+}
+
+.portal .seg {
+  height: 100%;
+  min-width: 3px;
+}
+
+.portal .seg:first-child {
+  border-radius: 4px 0 0 4px;
+}
+
+.portal .seg:last-child {
+  border-radius: 0 4px 4px 0;
+}
+
+.portal .seg:only-child {
+  border-radius: 4px;
+}
+
+.portal .tv-bar-value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.portal .tv-sprint {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.portal .tv-sprint-top {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+
+.portal .tv-sprint-pct {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.portal .tv-meter {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--chart-grid);
+  overflow: hidden;
+}
+
+.portal .tv-meter span {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: var(--series-1);
+}
+
+.portal .tv-path {
+  margin-bottom: 0.3rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.portal .tv-file-list li {
+  flex-wrap: nowrap;
+}
+
+.portal .tv-file-list a.tv-title {
+  color: var(--fg);
+  text-decoration: none;
+}
+
+.portal .tv-file-list a.tv-title:hover {
+  text-decoration: underline;
+}
+
+.portal .tv-glyph {
+  flex: none;
+  width: 1.2rem;
+  text-align: center;
+  font-size: 0.8rem;
+}
+
+.portal .tv-glyph.code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--muted);
+}
+
+.portal .tv-file-list .tv-meta {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.portal .tv-doc-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.portal .tv-doc-head a {
+  color: var(--fg);
+}
+
+.portal .tool-view p.tv-excerpt {
+  margin-top: 0.35rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 9.5rem;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.78rem;
+  border-left: 2px solid var(--border);
+  padding-left: 0.5rem;
+}
+
+.portal .tv-col-plot {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 64px;
+  border-bottom: 1px solid var(--chart-axis);
+}
+
+.portal .tv-col {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  height: 100%;
+}
+
+.portal .tv-col .bar {
+  width: 100%;
+  min-height: 2px;
+  background: var(--series-1);
+  border-radius: 3px 3px 0 0;
+}
+
+.portal .tv-col:hover .bar {
+  background: color-mix(in srgb, var(--series-1) 75%, var(--fg));
+}
+
+.portal .tv-col-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.2rem;
+}
+
+.portal .tv-commit-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.2rem 0.45rem;
+  margin-bottom: 0.4rem;
+}
+
+.portal .tv-diff .add {
+  color: var(--ok);
+}
+
+.portal .tv-diff .del {
+  color: var(--danger);
+}
+
+.portal .tv-files {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.portal .tv-files li {
+  display: grid;
+  grid-template-columns: 1fr 5rem;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.portal .tv-file {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+.portal .tv-diffbar {
+  display: flex;
+  gap: 2px;
+  height: 8px;
+}
+
+.portal .tv-diffbar span {
+  height: 100%;
+  border-radius: 2px;
+}
+
+.portal .tv-diffbar .add {
+  background: var(--ok);
+}
+
+.portal .tv-diffbar .del {
+  background: var(--danger);
+}

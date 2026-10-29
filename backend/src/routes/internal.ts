@@ -1,15 +1,12 @@
 import { Router } from 'express';
 import { requireAuth } from '../auth/session';
 import { db } from '../db';
-import { RESOURCE_DEFS, type ResourceKey } from '../resources';
+import { CONTENT_ORDER_BY, RESOURCE_DEFS, type ResourceKey } from '../resources';
+import { assistantRouter } from './assistant';
 import { crudRouter } from './crud';
-
-const ORDER_BY: Record<ResourceKey, string> = {
-  people: 'sort_order, name',
-  publications: 'year DESC, id DESC',
-  news: 'published_at DESC, id DESC',
-  resources: 'category, title',
-};
+import { driveRouter } from './drive';
+import { githubRouter } from './github';
+import { trackerRouter } from './tracker';
 
 // Everything under /api/internal requires a signed-in lab member.
 export const internalRouter = Router();
@@ -28,6 +25,11 @@ internalRouter.get('/stats', (_req, res) => {
   res.json(counts);
 });
 
+internalRouter.use('/drive', driveRouter);
+internalRouter.use('/github', githubRouter);
+internalRouter.use('/tracker', trackerRouter);
+internalRouter.use('/assistant', assistantRouter);
+
 for (const key of Object.keys(RESOURCE_DEFS) as ResourceKey[]) {
-  internalRouter.use(`/${key}`, crudRouter(RESOURCE_DEFS[key], ORDER_BY[key]));
+  internalRouter.use(`/${key}`, crudRouter(RESOURCE_DEFS[key], CONTENT_ORDER_BY[key]));
 }
