@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { useAuth } from '../auth';
 import type { CurrentSprint, Member, MemberStats, SprintInfo, Task, TaskPriority, TaskStatus, TaskType, TrackerConfig } from '../types';
-import { AiChat } from './AiChat';
+import { ASSISTANT_CHANGED_EVENT } from '../assistant/Assistant';
 import {
   byPriority,
   errorText,
@@ -81,7 +81,6 @@ export function TrackerPage() {
   const [newDefaults, setNewDefaults] = useState<{ assignee: string | null; status: TaskStatus }>({ assignee: null, status: 'todo' });
   const [memberDialog, setMemberDialog] = useState<{ open: boolean; member: Member | null }>({ open: false, member: null });
   const [plannerOpen, setPlannerOpen] = useState(false);
-  const [aiOpen, setAiOpen] = useState(false);
 
   const setSprintFilter = (v: string) => {
     setSprintFilterState(v);
@@ -153,6 +152,16 @@ export function TrackerPage() {
     }, REFRESH_MS);
     return () => clearInterval(id);
   }, [loadTasks, taskDialogOpen]);
+
+  // The assistant changed tasks: show them.
+  useEffect(() => {
+    const onChanged = () => {
+      reload();
+      loadTeam();
+    };
+    window.addEventListener(ASSISTANT_CHANGED_EVENT, onChanged);
+    return () => window.removeEventListener(ASSISTANT_CHANGED_EVENT, onChanged);
+  }, [reload, loadTeam]);
 
   // Open the planner once per sprint per browser session, the first time the
   // board loads after a sprint ends; closing it ("Later") snoozes it.
@@ -336,11 +345,6 @@ export function TrackerPage() {
             <button type="button" className="secondary" onClick={() => setMemberDialog({ open: true, member: null })}>
               + Member
             </button>
-            {config.ai_enabled && (
-              <button type="button" className="secondary" onClick={() => setAiOpen(true)}>
-                ✨ Ask Gemini
-              </button>
-            )}
             {current?.member && (
               <button type="button" className="secondary" onClick={() => setPlannerOpen(true)} title="Review last sprint and choose what you're taking on">
                 📋 Plan sprint{current.planning_needed && <span className="dot-indicator" aria-label="not planned yet" />}
@@ -527,16 +531,6 @@ export function TrackerPage() {
             }}
           />
           <SprintPlanner open={plannerOpen} onClose={() => setPlannerOpen(false)} onPlanned={onPlanned} />
-          {config?.ai_enabled && (
-            <AiChat
-              open={aiOpen}
-              onClose={() => setAiOpen(false)}
-              onChanged={() => {
-                reload();
-                loadTeam();
-              }}
-            />
-          )}
         </TrackerContext.Provider>
       )}
     </div>

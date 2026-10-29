@@ -3,6 +3,7 @@ import { Link, NavLink, Outlet, useOutletContext } from 'react-router';
 import { api } from './api';
 import type { ResourceDef } from './types';
 import { useAuth } from './auth';
+import { Assistant } from './assistant/Assistant';
 
 /** Content definitions loaded by the portal layout, available to every portal page. */
 export function useDefinitions(): ResourceDef[] {
@@ -63,6 +64,7 @@ export function Layout() {
         {error && <p className="error">{error}</p>}
         {defs ? <Outlet context={defs} /> : !error && <p className="muted">Loading…</p>}
       </main>
+      <Assistant />
     </div>
   );
 }

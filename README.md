@@ -72,7 +72,7 @@ On Windows with Git Bash, `railway config` can fail with "requires Railway CLI 5
 
 ## Integrations
 
-Credentials the backend can use, all stored as Railway variables on the `api` service (secrets via `railway variable set NAME --stdin`, never in the repo; ids in `.railway/railway.ts`). The portal's Lab Drive page uses the Google service account; the Repositories pages and the Task Board use the GitHub App; the Task Board's weekly posts use the Slack bot (once `SLACK_TRACKER_CHANNEL_ID` is set) and its assistant uses `GEMINI_API_KEY` (a Google AI Studio key; the assistant is hidden until it's set).
+Credentials the backend can use, all stored as Railway variables on the `api` service (secrets via `railway variable set NAME --stdin`, never in the repo; ids in `.railway/railway.ts`). The portal's Lab Drive page uses the Google service account; the Repositories pages and the Task Board use the GitHub App; the Task Board's weekly posts use the Slack bot (once `SLACK_TRACKER_CHANNEL_ID` is set) and the portal's assistant uses `ANTHROPIC_API_KEY` (a Claude API key, model `ANTHROPIC_MODEL`, default `claude-haiku-5-5`; the assistant is hidden until the key is set).
 
 | Service | What | Access | Manage at |
 | --- | --- | --- | --- |
@@ -100,7 +100,7 @@ To rotate a key, create a new one at the link above, set it on Railway, redeploy
 - **GitHub:** every 10 minutes (and on "Sync from GitHub") the backend reads recent commits on every branch of every repo. A commit links to a task when its message contains the task's ref (`T-12`), the `#number` of an issue or PR linked to the task (same repo), or the task's whole title (code tasks only). Pills show merged vs on-branch commits. Link issues and PRs from the task dialog, or create an issue from a task. **Closing a linked issue marks its task done.** From an issue page, "Track as task" creates a linked task.
 - **Overall:** commits and lines added/removed per week across the org, plus contributors.
 - **Slack** (when `SLACK_TRACKER_CHANNEL_ID` is set): Wednesday 09:00 check-in in the channel, Saturday 11:00 sprint recap, and a DM (Wednesday and Friday) to members with a Slack id who haven't posted an update yet. Set `SLACK_DRY_RUN=1` to log them instead.
-- **Assistant** (when `GEMINI_API_KEY` is set): "✨ Ask Gemini" answers questions about tasks, sprints and GitHub, and can create and update tasks as the signed-in member.
+- **Assistant** (when `ANTHROPIC_API_KEY` is set): the button at the bottom right of every portal page opens a chat with Claude (Haiku 5.5 by default, `ANTHROPIC_MODEL`). It answers questions about tasks, sprints and GitHub, knows which page you have open, and can create and update tasks as the signed-in member. Each tool call it makes is shown as a card with its arguments, timing and a small view of the result (task lists, commit bars, sprint progress, diffstats). Code: `backend/src/ai/` and `frontend-private/src/assistant/`.
 
 ## Next steps
 

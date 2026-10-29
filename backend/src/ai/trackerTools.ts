@@ -474,13 +474,13 @@ export function summarizeResult(name: string, r: Record<string, unknown>): strin
     case 'list_team':
       return `${len('members')} members`;
     case 'list_tasks':
-      return `${r.total} tasks`;
+      return `${r.total} task${r.total === 1 ? '' : 's'}`;
     case 'get_member_stats':
       return `${len('members')} members`;
     case 'list_repos':
       return `${len('repos')} repos`;
     case 'list_issues':
-      return `${r.total} items`;
+      return `${r.total} item${r.total === 1 ? '' : 's'}`;
     case 'list_commits':
       return `${len('commits')} of ${r.total_matched} commits`;
     case 'get_commit':
@@ -510,3 +510,125 @@ export function summarizeResult(name: string, r: Record<string, unknown>): strin
       return 'ok';
   }
 }
+
+/**
+ * What the portal draws for a tool call: a compact, typed slice of the result
+ * (the model sees the full result; the browser only needs enough to show it).
+ */
+export type ToolView =
+  | { kind: 'tasks'; total: number; items: { id: number; ref: string; title: string; status: string; priority: string; assignee: string | null }[] }
+  | { kind: 'people'; items: { login: string; name: string; role: string }[] }
+  | { kind: 'bars'; unit: string; items: { label: string; value: number; secondary: number }[]; legend: [string, string] }
+  | { kind: 'sprint'; label: string; committed: number; completed: number; pct: number; in_progress: number; blocked: number; todo: number }
+  | { kind: 'rows'; total: number; items: { key: string; title: string; meta: string; state?: string; url?: string }[] }
+  | { kind: 'commit'; sha: string; message: string; additions: number; deletions: number; files: { name: string; additions: number; deletions: number }[] }
+  | { kind: 'error'; message: string };
+
+const ROWS = 8;
+
+const taskItem = (t: ReturnType<typeof taskView>) => ({ id: t.id, ref: t.ref, title: t.title, status: t.status, priority: t.priority, assignee: t.assignee });
+const commitRow = (c: { sha: string; message: string; author_login: string | null; author_name: string | null; authored_at: string; url: string }) => ({
+  key: c.sha.slice(0, 7),
+  title: c.message.split('\n')[0],
+  meta: `${c.author_login ?? c.author_name ?? 'unknown'} · ${c.authored_at.slice(0, 10)}`,
+  url: c.url,
+});
+
+export function viewOf(name: string, r: Record<string, unknown>): ToolView | null {
+  if (r.error) return { kind: 'error', message: String(r.error) };
+  const list = <T>(k: string) => (Array.isArray(r[k]) ? (r[k] as T[]) : []);
+  switch (name) {
+    case 'list_tasks': {
+      const tasks = list<ReturnType<typeof taskView>>('tasks');
+      return { kind: 'tasks', total: Number(r.total ?? tasks.length), items: tasks.slice(0, ROWS).map(taskItem) };
+    }
+    case 'create_task':
+    case 'update_task':
+    case 'add_subtasks':
+    case 'assign_subtask':
+    case 'set_subtask_done':
+    case 'delete_subtask':
+    case 'link_issue': {
+      const t = (r.created ?? r.task) as ReturnType<typeof taskView> | undefined;
+      return t && typeof t === 'object' ? { kind: 'tasks', total: 1, items: [taskItem(t)] } : null;
+    }
+    case 'list_team':
+      return { kind: 'people', items: list<{ login: string; name: string; role: string }>('members').map(({ login, name, role }) => ({ login, name, role })) };
+    case 'get_member_stats':
+      return {
+        kind: 'bars',
+        unit: 'commits, last 7 days',
+        legend: ['merged', 'on a branch'],
+        items: list<MemberStatsRow>('members')
+          .map((m) => ({ label: m.login, value: m.merged_count, secondary: m.unmerged_count }))
+          .sort((a, b) => b.value + b.secondary - (a.value + a.secondary)),
+      };
+    case 'get_sprint_summary': {
+      const t = r.totals as { committed: number; completed: number; completion_pct: number; in_progress: number; blocked: number; todo: number } | undefined;
+      if (t) return { kind: 'sprint', label: String(r.label), committed: t.committed, completed: t.completed, pct: t.completion_pct, in_progress: t.in_progress, blocked: t.blocked, todo: t.todo };
+      const p = r.person as { committed: number; completed: number } | undefined;
+      if (!p) return null;
+      const pct = p.committed ? Math.round((p.completed / p.committed) * 100) : 0;
+      const open = list<{ status: string; completed: boolean }>('tasks').filter((x) => !x.completed);
+      const count = (s: string) => open.filter((x) => x.status === s).length;
+      return { kind: 'sprint', label: String(r.label), committed: p.committed, completed: p.completed, pct, in_progress: count('in-progress'), blocked: count('blocked'), todo: count('todo') };
+    }
+    case 'list_repos': {
+      const repos = list<{ full_name: string; description: string | null; language: string | null; open_issues: number; open_prs: number; url: string }>('repos');
+      return {
+        kind: 'rows',
+        total: repos.length,
+        items: repos.slice(0, ROWS).map((x) => ({
+          key: x.full_name.split('/')[1] ?? x.full_name,
+          title: x.description ?? '',
+          meta: [x.language, `${x.open_issues} issues`, `${x.open_prs} PRs`].filter(Boolean).join(' · '),
+          url: x.url,
+        })),
+      };
+    }
+    case 'list_issues': {
+      const items = list<{ repo: string; number: number; title: string; state: string; merged: boolean; user: string | null; url: string }>('items');
+      return {
+        kind: 'rows',
+        total: Number(r.total ?? items.length),
+        items: items.slice(0, ROWS).map((x) => ({
+          key: `${x.repo.split('/')[1] ?? x.repo}#${x.number}`,
+          title: x.title,
+          meta: x.user ? `@${x.user}` : '',
+          state: x.merged ? 'merged' : x.state,
+          url: x.url,
+        })),
+      };
+    }
+    case 'list_commits':
+      return { kind: 'rows', total: Number(r.total_matched ?? 0), items: list<CommitRowInput>('commits').slice(0, ROWS).map(commitRow) };
+    case 'get_task_commits':
+      return { kind: 'rows', total: Number(r.count ?? 0), items: list<CommitRowInput>('commits').slice(0, ROWS).map(commitRow) };
+    case 'get_task_updates': {
+      const updates = list<{ author: string; body: string; created_at: string }>('updates');
+      return {
+        kind: 'rows',
+        total: Number(r.total ?? updates.length),
+        items: updates.slice(0, ROWS).map((u) => ({ key: u.author, title: u.body.slice(0, 160), meta: u.created_at.slice(0, 10) })),
+      };
+    }
+    case 'get_commit': {
+      const stats = r.stats as { additions: number; deletions: number } | undefined;
+      return {
+        kind: 'commit',
+        sha: String(r.sha).slice(0, 7),
+        message: String(r.message ?? '').split('\n')[0],
+        additions: stats?.additions ?? 0,
+        deletions: stats?.deletions ?? 0,
+        files: list<{ filename: string; additions: number; deletions: number }>('files')
+          .slice(0, ROWS)
+          .map((f) => ({ name: f.filename, additions: f.additions, deletions: f.deletions })),
+      };
+    }
+    default:
+      return null;
+  }
+}
+
+type MemberStatsRow = { login: string; merged_count: number; unmerged_count: number };
+type CommitRowInput = Parameters<typeof commitRow>[0];

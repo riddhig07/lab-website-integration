@@ -40,11 +40,11 @@ export const config = {
     // Log Slack messages instead of sending them.
     dryRun: env.SLACK_DRY_RUN === '1',
   },
-  gemini: {
-    // Google AI Studio key for the tracker's assistant; without it the
-    // assistant is off.
-    apiKey: env.GEMINI_API_KEY?.trim() ?? '',
-    model: env.GEMINI_MODEL?.trim() || 'gemini-2.5-flash',
+  anthropic: {
+    // Claude API key for the portal's assistant; without it the assistant
+    // is off.
+    apiKey: env.ANTHROPIC_API_KEY?.trim() ?? '',
+    model: env.ANTHROPIC_MODEL?.trim() || 'claude-haiku-5-5',
   },
   google: {
     // Base64 of the service account's JSON key.

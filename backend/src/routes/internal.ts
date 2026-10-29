@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { requireAuth } from '../auth/session';
 import { db } from '../db';
 import { RESOURCE_DEFS, type ResourceKey } from '../resources';
+import { assistantRouter } from './assistant';
 import { crudRouter } from './crud';
 import { driveRouter } from './drive';
 import { githubRouter } from './github';
@@ -34,6 +35,7 @@ internalRouter.get('/stats', (_req, res) => {
 internalRouter.use('/drive', driveRouter);
 internalRouter.use('/github', githubRouter);
 internalRouter.use('/tracker', trackerRouter);
+internalRouter.use('/assistant', assistantRouter);
 
 for (const key of Object.keys(RESOURCE_DEFS) as ResourceKey[]) {
   internalRouter.use(`/${key}`, crudRouter(RESOURCE_DEFS[key], ORDER_BY[key]));

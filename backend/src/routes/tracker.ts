@@ -1,5 +1,4 @@
 import { Router, type ErrorRequestHandler, type Request } from 'express';
-import { streamChat } from '../ai/gemini';
 import { requireRole } from '../auth/session';
 import { config } from '../config';
 import { db } from '../db';
@@ -52,7 +51,7 @@ const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : unde
 trackerRouter.get('/config', (_req, res) => {
   const user = res.locals.user!;
   res.json({
-    ai_enabled: Boolean(config.gemini.apiKey),
+    ai_enabled: Boolean(config.anthropic.apiKey),
     github_enabled: githubAppEnabled,
     slack_enabled: slackEnabled,
     timezone: config.tracker.timezone,
@@ -253,36 +252,6 @@ trackerRouter.post('/sprints/:key/plan', (req, res) => {
   const result = applyPlan(req.params.key, res.locals.user!.github_login, parsePlan(req.body));
   if (result.link_commits) relinkCommits();
   res.json(result);
-});
-
-// ---------------------------------------------------------------------------
-// Assistant
-
-/**
- * Server-sent events, one JSON object per `data:` line:
- *   {type:'text', delta} · {type:'tool', tool, args, result_summary} ·
- *   {type:'action', op, ...} · {type:'done', actions} · {type:'error', error}
- */
-trackerRouter.post('/ai/chat', async (req, res) => {
-  if (!config.gemini.apiKey) throw new TrackerError(503, 'The assistant is not set up (GEMINI_API_KEY)');
-  const messages = Array.isArray(req.body?.messages) ? req.body.messages : [];
-  if (messages.length === 0 || messages.length > 40) throw new TrackerError(400, 'Send 1-40 messages');
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache, no-transform',
-    'X-Accel-Buffering': 'no',
-    Connection: 'keep-alive',
-  });
-  const abort = new AbortController();
-  res.on('close', () => abort.abort());
-  try {
-    for await (const event of streamChat(messages, res.locals.user!, abort.signal)) {
-      res.write(`data: ${JSON.stringify(event)}\n\n`);
-    }
-  } catch (err) {
-    res.write(`data: ${JSON.stringify({ type: 'error', error: err instanceof Error ? err.message : String(err) })}\n\n`);
-  }
-  res.end();
 });
 
 const trackerErrors: ErrorRequestHandler = (err, _req, res, next) => {

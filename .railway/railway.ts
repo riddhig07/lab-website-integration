@@ -46,9 +46,10 @@ export default defineRailway(() => {
       SLACK_TRACKER_CHANNEL_ID: preserve(),
       // The task board's clock: sprints run Saturday 11:00 to Saturday 11:00.
       TRACKER_TIMEZONE: 'America/Los_Angeles',
-      // Google AI Studio key for the task board's assistant (a secret, set
-      // outside this file). Unset: the assistant is hidden.
-      GEMINI_API_KEY: preserve(),
+      // Claude API key for the portal's assistant (a secret, set outside this
+      // file). Unset: the assistant button is hidden.
+      ANTHROPIC_API_KEY: preserve(),
+      ANTHROPIC_MODEL: 'claude-haiku-5-5',
       // Service account lab-website@sherp-lab-website.iam.gserviceaccount.com
       // (Google Cloud project sherp-lab-website, Drive/Docs/Calendar APIs on).
       // It sees only what is shared with it (read-only). The key (base64
