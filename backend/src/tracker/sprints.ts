@@ -1,8 +1,8 @@
 // Weekly sprints for the task tracker, the single source of sprint dates and
 // summaries for the routes, the assistant and the Slack posts.
 //
-// A sprint runs Saturday 11:00 -> the next Saturday 11:00 in TRACKER_TIMEZONE,
-// so it ends exactly when the Saturday Slack recap posts. Sprints are created
+// A sprint runs Monday 12:30 -> the next Monday 12:30 in TRACKER_TIMEZONE,
+// so it ends exactly when the Monday Slack recap posts. Sprints are created
 // lazily: ensureCurrentSprint() closes any sprint whose time is up (freezing
 // its summary) and inserts the one covering `now`, so no scheduler is needed
 // for correctness.
@@ -18,8 +18,9 @@ import { memberNames } from './people';
 import { addDays, formatShortDate, isoDate, localDate, zonedParts, zonedToUtc } from './time';
 
 const SPRINT_DAYS = 7;
-const BOUNDARY_WEEKDAY = 6; // Saturday
-const BOUNDARY_HOUR = 11;
+const BOUNDARY_WEEKDAY = 1; // Monday
+const BOUNDARY_HOUR = 12;
+const BOUNDARY_MINUTE = 30;
 const MAX_LISTED = 100;
 
 export class SprintError extends Error {}
@@ -52,14 +53,14 @@ export interface SprintInfo {
 export function sprintWindow(now: Date): { start: Date; end: Date } {
   const local = zonedParts(now);
   let startDate = addDays(local.year, local.month, local.day, -((local.weekday - BOUNDARY_WEEKDAY + 7) % 7));
-  let start = zonedToUtc(startDate.year, startDate.month, startDate.day, BOUNDARY_HOUR);
+  let start = zonedToUtc(startDate.year, startDate.month, startDate.day, BOUNDARY_HOUR, BOUNDARY_MINUTE);
   if (start > now) {
-    // Saturday morning, before 11:00: still last week's sprint.
+    // Monday morning, before 12:30: still last week's sprint.
     startDate = addDays(startDate.year, startDate.month, startDate.day, -SPRINT_DAYS);
-    start = zonedToUtc(startDate.year, startDate.month, startDate.day, BOUNDARY_HOUR);
+    start = zonedToUtc(startDate.year, startDate.month, startDate.day, BOUNDARY_HOUR, BOUNDARY_MINUTE);
   }
   const endDate = addDays(startDate.year, startDate.month, startDate.day, SPRINT_DAYS);
-  return { start, end: zonedToUtc(endDate.year, endDate.month, endDate.day, BOUNDARY_HOUR) };
+  return { start, end: zonedToUtc(endDate.year, endDate.month, endDate.day, BOUNDARY_HOUR, BOUNDARY_MINUTE) };
 }
 
 function label(row: SprintRow): string {

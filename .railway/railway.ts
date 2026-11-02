@@ -41,10 +41,10 @@ export default defineRailway(() => {
       // a channel before reading its history. Both values are secrets.
       SLACK_BOT_TOKEN: preserve(),
       SLACK_SIGNING_SECRET: preserve(),
-      // Channel id (C0…) for the task board's Wednesday check-in and Saturday
+      // Channel id (C0…) for the task board's Wednesday check-in and Monday
       // sprint recap. Invite the bot to it first. Unset: no Slack posts.
       SLACK_TRACKER_CHANNEL_ID: preserve(),
-      // The task board's clock: sprints run Saturday 11:00 to Saturday 11:00.
+      // The task board's clock: sprints run Monday 12:30 to Monday 12:30.
       TRACKER_TIMEZONE: 'America/Los_Angeles',
       // Claude API key for the portal's assistant (a secret, set outside this
       // file). Unset: the assistant button is hidden.

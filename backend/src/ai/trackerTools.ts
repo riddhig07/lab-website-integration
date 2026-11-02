@@ -113,7 +113,7 @@ const declarations: ToolDeclaration[] = [
   {
     name: 'get_sprint_summary',
     description:
-      'Summary of a weekly sprint (Saturday 11:00 to Saturday 11:00 lab time): committed vs completed, completion %, unfinished work by status, subtasks checked, updates, commits, a per-person breakdown and the task list. Closed sprints return the summary frozen at close.',
+      'Summary of a weekly sprint (Monday 12:30 to Monday 12:30 lab time): committed vs completed, completion %, unfinished work by status, subtasks checked, updates, commits, a per-person breakdown and the task list. Closed sprints return the summary frozen at close.',
     parameters: {
       type: 'object',
       properties: {

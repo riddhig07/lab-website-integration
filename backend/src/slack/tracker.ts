@@ -3,7 +3,7 @@
 //   Wednesday 09:00  midweek check-in: each person's sprint work, plus a DM to
 //                    anyone (with a Slack id) who hasn't posted an update yet
 //   Friday 09:00     that DM again, if they still haven't
-//   Saturday 11:00   recap of the sprint that just closed
+//   Monday 12:30     recap of the sprint that just closed
 // Each post is recorded in tracker_notifications before sending, so restarts
 // and multiple ticks never post twice.
 import { config } from '../config';
@@ -16,7 +16,7 @@ import { postMessage, slackEnabled, trackerChannel } from './client';
 
 const WEDNESDAY = 3;
 const FRIDAY = 5;
-const SATURDAY = 6;
+const MONDAY = 1;
 const MAX_ATTEMPTS = 3;
 
 const boardUrl = () => `${config.siteUrl}/portal/tracker`;
@@ -64,8 +64,8 @@ export async function checkSlackSchedule(now = new Date()): Promise<void> {
   if (local.weekday === FRIDAY && minutes >= 9 * 60) {
     await once('friday-nudge', today, nudgeQuietMembers);
   }
-  if (local.weekday === SATURDAY && minutes >= 11 * 60) {
-    await once('saturday', today, async () => {
+  if (local.weekday === MONDAY && minutes >= 12 * 60 + 30) {
+    await once('monday-recap', today, async () => {
       // Closes the sprint that just ended (freezing its summary).
       const current = ensureCurrentSprint(now);
       const prev = previousSprint(current.key);

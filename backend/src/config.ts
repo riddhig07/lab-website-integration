@@ -29,7 +29,7 @@ export const config = {
     privateKey: env.GITHUB_APP_PRIVATE_KEY?.trim() ? Buffer.from(env.GITHUB_APP_PRIVATE_KEY.trim(), 'base64').toString() : '',
   },
   tracker: {
-    // Sprints run Saturday 11:00 to Saturday 11:00 in this timezone, and the
+    // Sprints run Monday 12:30 to Monday 12:30 in this timezone, and the
     // Slack reminders go out on its clock.
     timezone: env.TRACKER_TIMEZONE?.trim() || 'America/Los_Angeles',
   },
