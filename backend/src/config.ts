@@ -46,6 +46,18 @@ export const config = {
     apiKey: env.ANTHROPIC_API_KEY?.trim() ?? '',
     model: env.ANTHROPIC_MODEL?.trim() || 'claude-haiku-5-5',
   },
+  meetings: {
+    // The transcriber service (transcriber/, WhisperX + pyannote). Unset: the
+    // Meetings page is off.
+    transcriberUrl: (env.MEETINGS_TRANSCRIBER_URL ?? '').trim().replace(/\/+$/, ''),
+    // Shared secret the transcriber expects as a bearer token.
+    transcriberToken: env.MEETINGS_TRANSCRIBER_TOKEN?.trim() ?? '',
+    // The Drive folder meeting notes are written to. Unset: a "Meeting Notes"
+    // folder inside the lab folder, created on first use.
+    notesFolderId: env.MEETINGS_NOTES_FOLDER_ID?.trim() ?? '',
+    // Claude model that writes the notes; defaults to ANTHROPIC_MODEL.
+    model: env.MEETINGS_MODEL?.trim() ?? '',
+  },
   google: {
     // Base64 of the service account's JSON key.
     serviceAccountKey: env.GOOGLE_SERVICE_ACCOUNT_KEY?.trim() ?? '',

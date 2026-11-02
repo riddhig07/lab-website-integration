@@ -51,11 +51,22 @@ function RepoList() {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
 
-  useEffect(() => {
-    api<RepoSummary[]>('/internal/github/repos')
-      .then(setRepos)
-      .catch((e: Error) => setError(e.message));
-  }, []);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Opening the page (or pressing Refresh) re-reads the org from GitHub, so a
+  // repository moved in a moment ago shows up without waiting out the cache.
+  const load = () => {
+    setRefreshing(true);
+    api<RepoSummary[]>('/internal/github/repos?refresh=1')
+      .then((r) => {
+        setRepos(r);
+        setError(null);
+      })
+      .catch((e: Error) => setError(e.message))
+      .finally(() => setRefreshing(false));
+  };
+
+  useEffect(load, []);
 
   const q = filter.trim().toLowerCase();
   const shown = (repos ?? []).filter(
@@ -67,6 +78,9 @@ function RepoList() {
       <div className="toolbar">
         <input type="search" placeholder="Filter repositories" aria-label="Filter repositories" value={filter} onChange={(e) => setFilter(e.target.value)} />
         {repos && <span className="muted small">{repos.length} repositories</span>}
+        <button type="button" onClick={load} disabled={refreshing}>
+          {refreshing ? 'Refreshing…' : 'Refresh'}
+        </button>
       </div>
       {error && <p className="error">{error}</p>}
       {!repos && !error && <p className="muted">Loading…</p>}

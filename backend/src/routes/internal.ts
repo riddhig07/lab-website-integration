@@ -6,6 +6,7 @@ import { assistantRouter } from './assistant';
 import { crudRouter } from './crud';
 import { driveRouter } from './drive';
 import { githubRouter } from './github';
+import { meetingsRouter } from './meetings';
 import { trackerRouter } from './tracker';
 
 // Everything under /api/internal requires a signed-in lab member.
@@ -29,6 +30,7 @@ internalRouter.use('/drive', driveRouter);
 internalRouter.use('/github', githubRouter);
 internalRouter.use('/tracker', trackerRouter);
 internalRouter.use('/assistant', assistantRouter);
+internalRouter.use('/meetings', meetingsRouter);
 
 for (const key of Object.keys(RESOURCE_DEFS) as ResourceKey[]) {
   internalRouter.use(`/${key}`, crudRouter(RESOURCE_DEFS[key], CONTENT_ORDER_BY[key]));

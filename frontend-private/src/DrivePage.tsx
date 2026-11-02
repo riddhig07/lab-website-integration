@@ -291,6 +291,8 @@ export function DrivePage() {
                     <thead>
                       <tr>
                         <th>Name</th>
+                        <th>Owner</th>
+                        <th>Created</th>
                         <th>Modified</th>
                         <th>Size</th>
                         <th aria-label="Actions" />
@@ -330,7 +332,13 @@ function ItemRow({ item }: { item: DriveItem }) {
         )}
         {item.targetId && <span className="muted small"> (shortcut)</span>}
       </td>
-      <td className="muted">{new Date(item.modifiedTime).toLocaleDateString()}</td>
+      <td className="muted" title={item.owner?.email ?? undefined}>
+        {item.owner?.name ?? '—'}
+      </td>
+      <td className="muted">{item.createdTime ? new Date(item.createdTime).toLocaleDateString() : '—'}</td>
+      <td className="muted" title={item.lastModifiedBy ? `Last edited by ${item.lastModifiedBy.name}` : undefined}>
+        {new Date(item.modifiedTime).toLocaleDateString()}
+      </td>
       <td className="muted">{item.size === null ? '—' : formatSize(item.size)}</td>
       <td className="row-actions">
         {canDownload(item) && (

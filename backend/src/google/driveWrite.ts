@@ -1,6 +1,7 @@
 // Adding to the lab's Drive folder, as the member's own Google account
 // (google/userAuth.ts). Folders are checked against the lab folder first, so
 // a connected account can't be used to write elsewhere in someone's Drive.
+import { randomBytes } from 'node:crypto';
 import { config } from '../config';
 import { assertLabFolder, DriveError, FILE_FIELDS, FOLDER, toItem, type DriveItem, type RawFile } from './drive';
 import { userAccessToken } from './userAuth';
@@ -18,7 +19,7 @@ function cleanName(value: unknown): string {
 const description = (login: string) => `Uploaded from the Lab Portal by ${login}.`;
 
 /** What Google says when the member's account can't add to the folder, in words. */
-async function writeError(res: Response, email: string): Promise<DriveError> {
+export async function writeError(res: Response, email: string): Promise<DriveError> {
   const body = (await res.json().catch(() => ({}))) as { error?: { message?: string; errors?: { reason?: string }[] } };
   const reason = body.error?.errors?.[0]?.reason;
   if (res.status === 404 || res.status === 403) {
@@ -66,6 +67,54 @@ export async function startUpload(
   const location = res.headers.get('location');
   if (!res.ok || !location) throw await writeError(res, email);
   return { upload_url: location, email };
+}
+
+/** The folder called `name` directly inside `parentId` (made if it isn't there yet), as the member. */
+export async function ensureSubfolder(userId: number, login: string, parentId: string, name: string): Promise<string> {
+  await assertLabFolder(parentId);
+  const { token, email } = await userAccessToken(userId);
+  const q = `'${parentId.replace(/'/g, "\\'")}' in parents and name = '${name.replace(/'/g, "\\'")}' and mimeType = '${FOLDER}' and trashed = false`;
+  const found = await fetch(
+    `https://www.googleapis.com/drive/v3/files?${new URLSearchParams({ q, fields: 'files(id)', pageSize: '1', supportsAllDrives: 'true', includeItemsFromAllDrives: 'true' })}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!found.ok) throw await writeError(found, email);
+  const existing = ((await found.json()) as { files: { id: string }[] }).files[0];
+  if (existing) return existing.id;
+  return (await createFolder(userId, login, parentId, name)).id;
+}
+
+/**
+ * Creates a Google Doc named `name` in `folderId` from an HTML body (Drive
+ * converts it on upload), as the member.
+ */
+export async function createDocFromHtml(
+  userId: number,
+  login: string,
+  folderId: string,
+  name: string,
+  html: string,
+): Promise<{ id: string; url: string }> {
+  await assertLabFolder(folderId);
+  const { token, email } = await userAccessToken(userId);
+  const boundary = `lab-${randomBytes(12).toString('hex')}`;
+  const meta = JSON.stringify({
+    name: name.slice(0, MAX_NAME),
+    mimeType: 'application/vnd.google-apps.document',
+    parents: [folderId],
+    description: `Meeting notes written by the Lab Portal for ${login}.`,
+  });
+  const body = Buffer.from(
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${boundary}\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n${html}\r\n--${boundary}--`,
+    'utf8',
+  );
+  const res = await fetch(
+    `https://www.googleapis.com/upload/drive/v3/files?${new URLSearchParams({ uploadType: 'multipart', supportsAllDrives: 'true', fields: 'id,webViewLink' })}`,
+    { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': `multipart/related; boundary=${boundary}` }, body },
+  );
+  if (!res.ok) throw await writeError(res, email);
+  const file = (await res.json()) as { id: string; webViewLink?: string };
+  return { id: file.id, url: file.webViewLink ?? `https://docs.google.com/document/d/${file.id}/edit` };
 }
 
 export async function createFolder(userId: number, login: string, parentId: string, nameValue: unknown): Promise<DriveItem> {

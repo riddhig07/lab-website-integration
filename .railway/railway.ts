@@ -63,8 +63,41 @@ export default defineRailway(() => {
       GOOGLE_OAUTH_CLIENT_SECRET: preserve(),
       // The "Nath Lab" Drive folder, browsable in the portal's Lab Drive page.
       GOOGLE_DRIVE_FOLDER_ID: '1trCaDHYPd9_ELgNx0JEd68qw0sJsp8cY',
+      // Meetings page: the transcriber service below, over Railway's private
+      // network. The token is a secret shared with it. Unset URL: the page
+      // says meetings are not set up.
+      MEETINGS_TRANSCRIBER_URL: 'http://transcriber.railway.internal:8000',
+      MEETINGS_TRANSCRIBER_TOKEN: preserve(),
+      // Where meeting notes Docs are written: "Meeting Notes/Agenda" in
+      // Nath Lab / Fall 2026, next to the lab's dated notes. Change it each
+      // semester. Empty = a "Meeting Notes" folder created in the lab folder.
+      // Audio goes to a "Recordings" folder inside it.
+      MEETINGS_NOTES_FOLDER_ID: '1oy9lqH1aRbfu1QkVjRW6sfEmaeLL8ZY_',
+      // Claude model that writes the notes. Sonnet was more careful than Haiku
+      // (no invented decisions) on a test meeting; empty = ANTHROPIC_MODEL.
+      MEETINGS_MODEL: 'claude-sonnet-5-5',
     },
   });
 
-  return project('lab-website', { resources: [api, data] });
+  // Speech-to-text with speaker labels (WhisperX + pyannote) for the Meetings
+  // page: transcriber/. No public domain; only the API reaches it. Deploy with
+  // `npm run deploy:transcriber`. CPU only: a meeting takes roughly as long to
+  // transcribe as it lasted at WHISPER_MODEL=small (use base for faster, less
+  // accurate).
+  const transcriber = service('transcriber', {
+    build: { builder: 'DOCKERFILE', dockerfilePath: 'Dockerfile' },
+    healthcheck: '/health',
+    healthcheckTimeout: 300,
+    env: {
+      PORT: '8000',
+      WHISPER_MODEL: 'small',
+      // A HuggingFace "read" token from an account that has accepted the terms
+      // of pyannote/speaker-diarization-community-1. A secret.
+      HF_TOKEN: preserve(),
+      // Same value as the API's MEETINGS_TRANSCRIBER_TOKEN. A secret.
+      TRANSCRIBER_TOKEN: preserve(),
+    },
+  });
+
+  return project('lab-website', { resources: [api, data, transcriber] });
 });

@@ -4,6 +4,7 @@
 frontend/           React + Vite: public site (/)
 frontend-private/   React + Vite: members portal (/portal), a separate app
 backend/            Express + SQLite API (/api)
+transcriber/        Python service: speech-to-text + speaker labels for Meetings (WhisperX + pyannote)
 ```
 
 - **Public site** (`frontend/src/public`): home, research, people, publications, news, contact. Reads `/api/public/*` only and contains no portal code.
@@ -87,6 +88,14 @@ To rotate a key, create a new one at the link above, set it on Railway, redeploy
 **Local development** (`backend/.env`, gitignored) has working values for all of these. Portal sign-in uses a separate OAuth app, "SHERP Lab Website (local dev)" (https://github.com/organizations/S-H-E-R-P-AI-Lab/settings/applications/3961157), whose only callback is `http://localhost:5180/api/auth/github/callback`. The GitHub App and the Google service account each have a second key used only locally, so either environment's key can be revoked without breaking the other. The Slack bot token and signing secret are the same as production: Slack issues one per workspace install.
 
 **For Claude Code** (`.mcp.json`): `github` (GitHub's hosted MCP server; needs a `GITHUB_PAT` environment variable holding a GitHub token) and `railway` (sign in with `/mcp`). Google Drive, Calendar and Gmail come from claude.ai connectors, as does Slack once connected at https://claude.ai/settings/connectors.
+
+## Meetings (in-person meeting notes)
+
+**Meetings** (`/portal/meetings`): press *Record meeting* on a laptop or phone at an in-person meeting. The browser records the room mic and uploads the audio straight to Drive (`Meeting Notes/Recordings`), then the API (`backend/src/meetings/`) runs: **transcribe with speaker labels** (the `transcriber/` service: WhisperX + pyannote) -> **Claude writes the notes** (summary, discussion by topic, decisions, action items, open questions, and who the speakers are when the conversation says so) -> **a Google Doc** in the Meeting Notes folder (notes first, full transcript last) -> **Slack DM** to whoever recorded. Progress and errors show on the page; a failed meeting can be retried from the step that failed. The recorder needs their Google account connected (same as Lab Drive uploads). An existing audio file can also be uploaded instead of recording.
+
+- **Needs:** `ANTHROPIC_API_KEY`, the Google variables above, and `MEETINGS_TRANSCRIBER_URL` (+ `MEETINGS_TRANSCRIBER_TOKEN`). `MEETINGS_NOTES_FOLDER_ID` picks an existing Drive folder; otherwise a `Meeting Notes` folder is created inside the lab folder. `MEETINGS_MODEL` picks the Claude model for the notes (Sonnet gave more careful notes than Haiku in testing; default is `ANTHROPIC_MODEL`).
+- **Transcriber:** see `transcriber/README.md`. It runs on Railway as its own service (CPU, private network only) or on any machine with a GPU. Speaker separation uses a gated HuggingFace model, so it needs a one-time `HF_TOKEN`.
+- **Limits:** speaker separation is automatic and imperfect, especially with overlapping speech and one shared mic; names come from what people say (introductions, being addressed by name) and the attendee boxes, not voiceprints. Tell people they are being recorded.
 
 ## Repositories and the Task Board
 

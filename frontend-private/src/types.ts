@@ -43,7 +43,13 @@ export interface DriveItem {
   mimeType: string;
   isFolder: boolean;
   size: number | null;
+  createdTime: string | null;
   modifiedTime: string;
+  /** Who owns it: its creator, or for a copy whoever made the copy. Null in shared drives. */
+  owner: { name: string; email: string | null } | null;
+  lastModifiedBy: { name: string; email: string | null } | null;
+  shared: boolean;
+  description: string | null;
   iconLink: string | null;
   webViewLink: string | null;
   /** For shortcuts: the id of the file they point to. */
@@ -61,6 +67,36 @@ export interface DriveAccount {
   uploads_enabled: boolean;
   /** The connected Google account, or null. */
   email: string | null;
+}
+
+/** GET /api/internal/meetings/options */
+export interface MeetingOptions {
+  enabled: boolean;
+  /** What's missing on the server when not enabled. */
+  problems: string[];
+  /** The member's connected Google account; null until they connect. */
+  google_email: string | null;
+  notes_folder_id: string | null;
+  recordings_folder_id: string | null;
+  members: { login: string; name: string }[];
+}
+
+/** GET /api/internal/meetings */
+export interface Meeting {
+  id: number;
+  user_id: number;
+  title: string;
+  status: 'uploaded' | 'transcribing' | 'writing' | 'done' | 'failed';
+  error: string | null;
+  audio_url: string | null;
+  attendees: string[];
+  speaker_count: number | null;
+  duration_sec: number | null;
+  doc_url: string | null;
+  timings: Record<string, number>;
+  recorded_by: string;
+  created_at: string;
+  updated_at: string;
 }
 
 // GitHub, through the lab's GitHub App (GET /api/internal/github/...)

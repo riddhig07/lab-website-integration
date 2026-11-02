@@ -42,8 +42,8 @@ function numberParam(value: unknown): number {
   return n;
 }
 
-githubRouter.get('/repos', async (_req, res) => {
-  res.json(await listRepos());
+githubRouter.get('/repos', async (req, res) => {
+  res.json(await listRepos(req.query.refresh === '1'));
 });
 
 /** Issues (or pull requests, with kind=pr) across the whole org. */
