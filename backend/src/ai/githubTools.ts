@@ -19,9 +19,10 @@ import {
   readRepoFile,
   searchCode,
   searchOrgIssues,
+  setIssueAssignees,
   setIssueState,
 } from '../github/repos';
-import { actorOf } from '../tracker/people';
+import { actorOf, listMembers } from '../tracker/people';
 import { clamp, excerpt, formatBytes, list, plural, str, VIEW_ROWS, type FileType, type Handler, type ToolDeclaration, type ToolModule, type ToolResult, type ToolView } from './toolkit';
 
 const REPO = { type: 'string', description: 'owner/name, e.g. S-H-E-R-P-AI-Lab/ugv_rover.' };
@@ -148,6 +149,21 @@ const declarations: ToolDeclaration[] = [
     parameters: { type: 'object', properties: { repo: REPO, number: NUMBER, state: { type: 'string', enum: ['open', 'closed'] } }, required: ['repo', 'number', 'state'] },
   },
   {
+    name: 'set_issue_assignees',
+    description:
+      "Assign a GitHub issue or pull request to lab members' own GitHub accounts, or take them off it. People can be given by name or GitHub login (names are matched against the team list); they are assigned under their GitHub login. mode: add (default) keeps the current assignees, remove takes the listed people off, set replaces everyone. The result lists anyone GitHub refused (typically someone without access to that repo). Only when the member asks. GitHub notifies the assignee.",
+    parameters: {
+      type: 'object',
+      properties: {
+        repo: REPO,
+        number: NUMBER,
+        assignees: { type: 'array', items: { type: 'string' }, description: 'Names or GitHub logins. With mode set, an empty list unassigns everyone.' },
+        mode: { type: 'string', enum: ['add', 'remove', 'set'], description: 'Default add.' },
+      },
+      required: ['repo', 'number', 'assignees'],
+    },
+  },
+  {
     name: 'create_issue',
     description: 'Open a new GitHub issue in a lab repo, signed with the member\'s username. Use create_issue_from_task instead when it should be tracked as a task. Only when the member asks.',
     parameters: {
@@ -156,7 +172,7 @@ const declarations: ToolDeclaration[] = [
         repo: REPO,
         title: { type: 'string' },
         body: { type: 'string', description: 'Markdown.' },
-        assignees: { type: 'array', items: { type: 'string' }, description: 'GitHub logins.' },
+        assignees: { type: 'array', items: { type: 'string' }, description: 'Team members by name or GitHub login.' },
         labels: { type: 'array', items: { type: 'string' } },
       },
       required: ['repo', 'title'],
@@ -165,6 +181,32 @@ const declarations: ToolDeclaration[] = [
 ];
 
 const strings = (v: unknown) => (Array.isArray(v) ? v.map(String).filter(Boolean) : undefined);
+
+/**
+ * Team members' GitHub logins for whatever the member typed: a login (with or
+ * without @), a full name, or an unambiguous first name / part of a name. A
+ * login-shaped word that matches no member is passed through as a login, since
+ * GitHub knows collaborators the team list may not.
+ */
+function resolveLogins(inputs: string[]): { logins: string[]; problems: string[] } {
+  const members = listMembers(true);
+  const logins: string[] = [];
+  const problems: string[] = [];
+  for (const raw of inputs) {
+    const token = raw.trim().replace(/^@/, '');
+    if (!token) continue;
+    const lower = token.toLowerCase();
+    const exact = members.filter((m) => m.github_login.toLowerCase() === lower || m.name.toLowerCase() === lower);
+    const partial = exact.length ? exact : members.filter((m) => m.name.toLowerCase().split(/\s+/).includes(lower) || m.name.toLowerCase().includes(lower));
+    if (partial.length === 1) logins.push(partial[0].github_login);
+    else if (partial.length > 1) problems.push(`"${raw}" could be ${partial.map((m) => `${m.name} (@${m.github_login})`).join(' or ')}`);
+    else if (/^[A-Za-z0-9-]+$/.test(token)) logins.push(token);
+    else problems.push(`No team member matches "${raw}"`);
+  }
+  return { logins: [...new Set(logins)], problems };
+}
+
+const sameLogin = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 
 const enabled =
   (handler: Handler): Handler =>
@@ -281,9 +323,27 @@ const handlers: Record<string, Handler> = {
   create_issue: async (args, ctx) => {
     const title = String(args.title ?? '').trim();
     if (!title) return { error: 'A title is required' };
-    const issue = await createIssue(String(args.repo), { title: title.slice(0, 256), body: String(args.body ?? ''), assignees: strings(args.assignees), labels: strings(args.labels) }, actorOf(ctx.user));
+    const { logins, problems } = resolveLogins(strings(args.assignees) ?? []);
+    if (problems.length) return { error: `Not opened. ${problems.join('; ')}` };
+    const issue = await createIssue(String(args.repo), { title: title.slice(0, 256), body: String(args.body ?? ''), assignees: logins, labels: strings(args.labels) }, actorOf(ctx.user));
     ctx.actions.push({ op: 'github', detail: `opened ${issue.repo}#${issue.number}` });
-    return { issue };
+    const notAssigned = logins.filter((l) => !issue.assignees.some((a) => sameLogin(a, l)));
+    return { issue, ...(notAssigned.length ? { not_assigned: notAssigned, note: `GitHub did not assign ${notAssigned.join(', ')}: they probably have no access to this repo.` } : {}) };
+  },
+
+  set_issue_assignees: async (args, ctx) => {
+    const mode = args.mode === 'remove' ? 'remove' : args.mode === 'set' ? 'set' : 'add';
+    const { logins, problems } = resolveLogins(strings(args.assignees) ?? []);
+    if (problems.length) return { error: `Nothing changed. ${problems.join('; ')}` };
+    if (!logins.length && mode !== 'set') return { error: 'Name at least one person to assign' };
+    const issue = await setIssueAssignees(String(args.repo), Number(args.number), { [mode]: logins });
+    const refused = mode === 'remove' ? logins.filter((l) => issue.assignees.some((a) => sameLogin(a, l))) : logins.filter((l) => !issue.assignees.some((a) => sameLogin(a, l)));
+    ctx.actions.push({ op: 'github', detail: `${mode === 'remove' ? 'unassigned' : 'assigned'} ${logins.map((l) => `@${l}`).join(', ') || 'no one'} on ${issue.repo}#${issue.number}` });
+    return {
+      issue,
+      assignees_now: issue.assignees,
+      ...(refused.length ? { not_changed: refused, note: `GitHub did not ${mode === 'remove' ? 'unassign' : 'assign'} ${refused.join(', ')}${mode === 'remove' ? '' : ': they probably have no access to this repo'}.` } : {}),
+    };
   },
 };
 
@@ -325,6 +385,10 @@ function summarize(name: string, r: ToolResult): string | undefined {
     case 'create_issue': {
       const i = r.issue as { repo: string; number: number };
       return `opened ${i.repo.split('/')[1]}#${i.number}`;
+    }
+    case 'set_issue_assignees': {
+      const i = r.issue as { repo: string; number: number; assignees: string[] };
+      return `${i.repo.split('/')[1]}#${i.number} → ${i.assignees.length ? i.assignees.map((a) => `@${a}`).join(', ') : 'unassigned'}`;
     }
     default:
       return undefined;
@@ -388,6 +452,7 @@ function view(name: string, r: ToolResult): ToolView | null | undefined {
       };
     }
     case 'set_issue_state':
+    case 'set_issue_assignees':
     case 'create_issue': {
       const i = r.issue as IssueRow;
       return { kind: 'rows', total: 1, items: [issueRow(i)] };

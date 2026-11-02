@@ -421,6 +421,28 @@ export async function setIssueState(fullName: string, number: number, state: 'op
   return issueSummary(issue, repo.full_name);
 }
 
+/**
+ * Changes who an issue or pull request is assigned to: `set` replaces the
+ * assignees, `add` / `remove` change only those logins. GitHub silently skips
+ * anyone who can't be assigned in the repo (not a collaborator), so the caller
+ * should compare the result's assignees with what it asked for.
+ */
+export async function setIssueAssignees(
+  fullName: string,
+  number: number,
+  change: { set?: string[]; add?: string[]; remove?: string[] },
+): Promise<IssueSummary> {
+  const repo = await assertRepo(fullName);
+  const path = `/repos/${repo.full_name}/issues/${number}`;
+  let issue: GhIssue | undefined;
+  if (change.set) issue = await gh<GhIssue>(path, { method: 'PATCH', body: { assignees: change.set } });
+  if (change.add?.length) issue = await gh<GhIssue>(`${path}/assignees`, { method: 'POST', body: { assignees: change.add } });
+  if (change.remove?.length) issue = await gh<GhIssue>(`${path}/assignees`, { method: 'DELETE', body: { assignees: change.remove } });
+  issue ??= await gh<GhIssue>(path);
+  invalidate(repo.full_name);
+  return issueSummary(issue, repo.full_name);
+}
+
 // ---------------------------------------------------------------------------
 // Commits, branches, contributors
 

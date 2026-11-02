@@ -76,11 +76,14 @@ const TOOLS: Record<string, { label: string; category: Category }> = {
   search_code: { label: 'Search code', category: 'github' },
   comment_on_issue: { label: 'Comment on issue', category: 'write' },
   set_issue_state: { label: 'Close / reopen issue', category: 'write' },
+  set_issue_assignees: { label: 'Assign issue', category: 'write' },
   create_issue: { label: 'Open GitHub issue', category: 'write' },
   // Lab Drive
   list_drive_folder: { label: 'Browse Drive', category: 'drive' },
   search_drive: { label: 'Search Drive', category: 'drive' },
   read_drive_file: { label: 'Read Drive file', category: 'drive' },
+  get_drive_file_info: { label: 'Drive file details', category: 'drive' },
+  get_drive_activity: { label: 'Drive activity', category: 'drive' },
   // Site content
   list_content: { label: 'Site content', category: 'content' },
   create_content: { label: 'Add site content', category: 'write' },
