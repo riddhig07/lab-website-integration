@@ -2,6 +2,7 @@ import { useEffect, useState, type DragEvent } from 'react';
 import type { Task, TaskStatus } from '../types';
 import { errorText, isSame, priorityClass, STATUS_LABELS, STATUSES, subtaskOwner, tracker, useTracker } from './api';
 import { SubtaskList } from './SubtaskList';
+import { DocPills } from './TaskDocs';
 import { Updates } from './Updates';
 
 export const DRAG_TYPE = 'application/x-lab-task';
@@ -159,6 +160,7 @@ export function TaskCard({ task, viewer, draggable, onDragStart, onDragEnd }: Ta
           💬 {task.updates.length || '+'}
         </button>
         <GithubPills task={task} />
+        <DocPills task={task} />
       </div>
       {showSubtasks && task.subtasks.length > 0 && (
         <div className="task-card-section">

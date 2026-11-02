@@ -3,7 +3,10 @@ import { requireRole } from '../auth/session';
 import { config } from '../config';
 import { db } from '../db';
 import { githubAppEnabled, GitHubError } from '../github/app';
-import { slackEnabled } from '../slack/client';
+import { DriveError } from '../google/drive';
+import { notifyAssignments } from '../slack/assignments';
+import { listSlackUsers, slackEnabled } from '../slack/client';
+import { linkDoc, parseDocRef, unlinkDoc } from '../tracker/docs';
 import { createIssueForTask, linkIssue, parseIssueRef, unlinkIssue } from '../tracker/links';
 import { actorOf, getMember, listMembers, memberByLogin, parseMemberInput, ROLES, updateMember, upsertMember, type MemberInput } from '../tracker/people';
 import { applyPlan, parsePlan, planningFor } from '../tracker/planning';
@@ -71,6 +74,11 @@ trackerRouter.get('/team', (_req, res) => {
   res.json(listMembers());
 });
 
+/** The Slack workspace's people, to pick a member's Slack account from. */
+trackerRouter.get('/slack-users', async (_req, res) => {
+  res.json(await listSlackUsers());
+});
+
 trackerRouter.post('/team', (req, res) => {
   const input = parseMemberInput(req.body, false);
   if ('error' in input) throw new TrackerError(400, input.error as string);
@@ -128,22 +136,26 @@ trackerRouter.post('/tasks', async (req, res) => {
   // Optionally tracks an existing GitHub issue: { link: { url } | { repo, number } }.
   const ref = req.body?.link ? parseIssueRef(req.body.link) : null;
   let task = createTask(fields, subtasks, actor(res));
+  notifyAssignments(null, task, actor(res));
   if (ref) task = await linkIssue(task.id, ref);
   else if (!NON_CODE_TYPES.has(task.task_type)) relinkCommits();
   res.status(201).json(requireTask(task.id));
 });
 
 trackerRouter.patch('/tasks/:id', (req, res) => {
-  const { task, titleChanged } = patchTask(idParam(req), parseTaskFields(req.body, true));
+  const before = requireTask(idParam(req));
+  const { task, titleChanged } = patchTask(before.id, parseTaskFields(req.body, true));
+  notifyAssignments(before, task, actor(res));
   if (titleChanged && !NON_CODE_TYPES.has(task.task_type)) relinkCommits();
   res.json(requireTask(task.id));
 });
 
 /** A drag on the board: { status?, assignee?, position? }. */
 trackerRouter.post('/tasks/:id/move', (req, res) => {
-  const id = idParam(req);
-  requireTask(id);
-  res.json(moveTask(id, req.body));
+  const before = requireTask(idParam(req));
+  const task = moveTask(before.id, req.body);
+  notifyAssignments(before, task, actor(res));
+  res.json(task);
 });
 
 trackerRouter.delete('/tasks/:id', requireRole('admin'), (req, res) => {
@@ -162,11 +174,17 @@ trackerRouter.post('/tasks/unarchive', (req, res) => {
 trackerRouter.post('/tasks/:id/subtasks', (req, res) => {
   const [input] = parseSubtasks([{ title: req.body?.title, assignee: req.body?.assignee }]);
   if (!input) throw new TrackerError(400, 'Title is required');
-  res.status(201).json(addSubtask(idParam(req), input));
+  const before = requireTask(idParam(req));
+  const task = addSubtask(before.id, input);
+  notifyAssignments(before, task, actor(res));
+  res.status(201).json(task);
 });
 
 trackerRouter.patch('/tasks/:id/subtasks/:sid', (req, res) => {
-  res.json(patchSubtask(idParam(req), idParam(req, 'sid'), req.body, actor(res)));
+  const before = requireTask(idParam(req));
+  const task = patchSubtask(before.id, idParam(req, 'sid'), req.body, actor(res));
+  notifyAssignments(before, task, actor(res));
+  res.json(task);
 });
 
 trackerRouter.delete('/tasks/:id/subtasks/:sid', (req, res) => {
@@ -187,6 +205,15 @@ trackerRouter.post('/tasks/:id/links', async (req, res) => {
 
 trackerRouter.delete('/tasks/:id/links/:lid', (req, res) => {
   res.json(unlinkIssue(idParam(req), idParam(req, 'lid')));
+});
+
+/** Links a Google Doc or Drive file: { url } or { file_id }. */
+trackerRouter.post('/tasks/:id/docs', async (req, res) => {
+  res.status(201).json(await linkDoc(idParam(req), parseDocRef(req.body), res.locals.user!.id, actor(res)));
+});
+
+trackerRouter.delete('/tasks/:id/docs/:did', (req, res) => {
+  res.json(unlinkDoc(idParam(req), idParam(req, 'did')));
 });
 
 /** Opens a GitHub issue for the task in { repo } and links it. */
@@ -256,7 +283,7 @@ trackerRouter.post('/sprints/:key/plan', (req, res) => {
 
 const trackerErrors: ErrorRequestHandler = (err, _req, res, next) => {
   if (err instanceof SprintError) err = new TrackerError(400, err.message);
-  if (!(err instanceof TrackerError) && !(err instanceof GitHubError)) return next(err);
+  if (!(err instanceof TrackerError) && !(err instanceof GitHubError) && !(err instanceof DriveError)) return next(err);
   if (err.status >= 500) console.error('[tracker]', err.message);
   if (res.headersSent) {
     res.end();

@@ -4,6 +4,7 @@ import { Dashboard } from './Dashboard';
 import { DrivePage } from './DrivePage';
 import { Layout } from './Layout';
 import { Login } from './Login';
+import { MeetingsPage } from './meetings/MeetingsPage';
 import { IssuePage } from './repos/IssuePage';
 import { RepoPage } from './repos/RepoPage';
 import { ReposPage } from './repos/ReposPage';
@@ -28,6 +29,7 @@ export function App() {
             <Route index element={<Dashboard />} />
             <Route path="drive" element={<DrivePage />} />
             <Route path="drive/:folderId" element={<DrivePage />} />
+            <Route path="meetings" element={<MeetingsPage />} />
             <Route path="tracker" element={<TrackerPage />} />
             <Route path="repos" element={<ReposPage />} />
             <Route path="repos/:owner/:name" element={<RepoPage />} />

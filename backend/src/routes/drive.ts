@@ -1,6 +1,6 @@
 import { Readable } from 'node:stream';
 import { Router, type ErrorRequestHandler, type RequestHandler, type Response } from 'express';
-import { download, DriveError, driveEnabled, driveRootId, listFolder } from '../google/drive';
+import { download, DriveError, driveEnabled, driveRootId, listFolder, searchDrive } from '../google/drive';
 import { createFolder, startUpload } from '../google/driveWrite';
 import { connectedEmail, disconnectAccount, googleUploadsEnabled } from '../google/userAuth';
 
@@ -21,6 +21,12 @@ driveRouter.use((_req, res, next) => {
 driveRouter.get('/folders/:id', async (req, res) => {
   const id = req.params.id === 'root' ? driveRootId() : req.params.id;
   res.json(await listFolder(id));
+});
+
+/** Files in the lab folder whose name or text matches ?q (for linking docs to tasks). */
+driveRouter.get('/search', async (req, res) => {
+  const q = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 100) : '';
+  res.json(q.length < 2 ? [] : await searchDrive(q, 10));
 });
 
 // ---------------------------------------------------------------------------

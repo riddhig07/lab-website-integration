@@ -4,6 +4,7 @@
 frontend/           React + Vite: public site (/)
 frontend-private/   React + Vite: members portal (/portal), a separate app
 backend/            Express + SQLite API (/api)
+transcriber/        Python service: speech-to-text + speaker labels for Meetings (WhisperX + pyannote)
 ```
 
 - **Public site** (`frontend/src/public`): home, research, people, publications, news, contact. Reads `/api/public/*` only and contains no portal code.
@@ -88,6 +89,14 @@ To rotate a key, create a new one at the link above, set it on Railway, redeploy
 
 **For Claude Code** (`.mcp.json`): `github` (GitHub's hosted MCP server; needs a `GITHUB_PAT` environment variable holding a GitHub token) and `railway` (sign in with `/mcp`). Google Drive, Calendar and Gmail come from claude.ai connectors, as does Slack once connected at https://claude.ai/settings/connectors.
 
+## Meetings (in-person meeting notes)
+
+**Meetings** (`/portal/meetings`): press *Record meeting* on a laptop or phone at an in-person meeting. The browser records the room mic and uploads the audio straight to Drive (`Meeting Notes/Recordings`), then the API (`backend/src/meetings/`) runs: **transcribe with speaker labels** (the `transcriber/` service: WhisperX + pyannote) -> **Claude writes the notes** (summary, discussion by topic, decisions, action items, open questions, and who the speakers are when the conversation says so) -> **a Google Doc** in the Meeting Notes folder (notes first, full transcript last) -> **Slack DM** to whoever recorded. Progress and errors show on the page; a failed meeting can be retried from the step that failed. The recorder needs their Google account connected (same as Lab Drive uploads). An existing audio file can also be uploaded instead of recording.
+
+- **Needs:** `ANTHROPIC_API_KEY`, the Google variables above, and `MEETINGS_TRANSCRIBER_URL` (+ `MEETINGS_TRANSCRIBER_TOKEN`). `MEETINGS_NOTES_FOLDER_ID` picks an existing Drive folder; otherwise a `Meeting Notes` folder is created inside the lab folder. `MEETINGS_MODEL` picks the Claude model for the notes (Sonnet gave more careful notes than Haiku in testing; default is `ANTHROPIC_MODEL`).
+- **Transcriber:** see `transcriber/README.md`. It runs on Railway as its own service (CPU, private network only) or on any machine with a GPU. Speaker separation uses a gated HuggingFace model, so it needs a one-time `HF_TOKEN`.
+- **Limits:** speaker separation is automatic and imperfect, especially with overlapping speech and one shared mic; names come from what people say (introductions, being addressed by name) and the attendee boxes, not voiceprints. Tell people they are being recorded.
+
 ## Repositories and the Task Board
 
 **Repositories** (`/portal/repos`) lists every repo the GitHub App is installed on, the open issues and pull requests across the org, and per repo its issues, PRs, commits, branches, contributors and weekly activity. Members can comment on, close and reopen issues; the App posts them and signs each with the member's username.
@@ -97,12 +106,13 @@ To rotate a key, create a new one at the link above, set it on Railway, redeploy
 - **Team:** everyone in the GitHub org, added by the sync. Set each person's role and Slack member id under "Edit member". Admins can deactivate people.
 - **Tasks:** an assignee (GitHub login), type, priority (P0–P4), status, scope (1–5), a PM note, subtasks (each can be handed to someone else, which puts the task on their row too) and progress updates. Done tasks can be archived. Any member can create and edit tasks; only admins delete them.
 - **Board:** a row per person and a column per status. Drag cards between columns to change status, or onto someone else's row to reassign. The status dropdown on each card does the same without dragging.
-- **Sprints:** weekly, Saturday 11:00 to Saturday 11:00 (`TRACKER_TIMEZONE`). At the start of each sprint everyone gets a wrap-up of their last one and picks what to carry over, pull from the backlog or add. The Sprints tab shows each sprint's scorecard, burn-up and per-person progress; closed sprints keep the summary frozen at close.
+- **Sprints:** weekly, Monday 12:30 to Monday 12:30 (`TRACKER_TIMEZONE`). At the start of each sprint everyone gets a wrap-up of their last one and picks what to carry over, pull from the backlog or add. The Sprints tab shows each sprint's scorecard, burn-up and per-person progress; closed sprints keep the summary frozen at close.
 - **GitHub:** every 10 minutes (and on "Sync from GitHub") the backend reads recent commits on every branch of every repo. A commit links to a task when its message contains the task's ref (`T-12`), the `#number` of an issue or PR linked to the task (same repo), or the task's whole title (code tasks only). Pills show merged vs on-branch commits. Link issues and PRs from the task dialog, or create an issue from a task. **Closing a linked issue marks its task done.** From an issue page, "Track as task" creates a linked task.
+- **Docs:** link Google Docs, Sheets, Slides or any Drive file to a task from the task dialog: paste its link, or type to search Lab Drive and pick a file. Cards show them as chips. A file's name comes from the service account when the file is shared with it (files inside the lab folder are marked "Lab Drive" and the assistant can read them), else from the member's connected Google account, else from the kind of link (`tracker/docs.ts`).
 - **Overall:** commits and lines added/removed per week across the org, plus contributors.
-- **Slack** (when `SLACK_TRACKER_CHANNEL_ID` is set): Wednesday 09:00 check-in in the channel, Saturday 11:00 sprint recap, and a DM (Wednesday and Friday) to members with a Slack id who haven't posted an update yet. Set `SLACK_DRY_RUN=1` to log them instead.
-- **Assistant** (when `ANTHROPIC_API_KEY` is set): the button at the bottom right of every portal page opens a chat with Claude (Haiku 5.5 by default, `ANTHROPIC_MODEL`). It knows which page you have open and acts as the signed-in member, with the same permissions (admin-only deletes stay admin-only). Its 47 tools cover:
-  - **Task board:** tasks, subtasks, updates, issue links (link and unlink), team members, sprints, a GitHub sync and activity stats.
+- **Slack:** link each member's Slack account under "Edit member" (a picker of the workspace's people). Linked members get a DM from the bot whenever someone else assigns them a task or a subtask, from the board, the task dialog or sprint planning, and whenever the assistant does, even when they asked it to (`slack/assignments.ts`; needs only `SLACK_BOT_TOKEN`). When `SLACK_TRACKER_CHANNEL_ID` is set there is also a Wednesday 09:00 check-in in the channel, a Monday 12:30 sprint recap, and a DM (Wednesday and Friday) to linked members who haven't posted an update yet. Set `SLACK_DRY_RUN=1` to log every message instead.
+- **Assistant** (when `ANTHROPIC_API_KEY` is set): the button at the bottom right of every portal page opens a chat with Claude (Haiku 5.5 by default, `ANTHROPIC_MODEL`). It knows which page you have open and acts as the signed-in member, with the same permissions (admin-only deletes stay admin-only). Its 49 tools cover:
+  - **Task board:** tasks, subtasks, updates, issue and doc links (link and unlink), team members, sprints, a GitHub sync and activity stats.
   - **GitHub:** repos, issues and PRs with comments, commits and diffs, branches, contributors, repo files, and code search. It can also comment on, close, reopen and open issues, but only when asked.
   - **Lab Drive:** browse, search, and read Docs, Sheets, Slides, text files, PDFs and images (read-only).
   - **Site content:** people, publications, news and lab resources.

@@ -58,6 +58,8 @@ const TOOLS: Record<string, { label: string; category: Category }> = {
   archive_tasks: { label: 'Archive tasks', category: 'write' },
   link_issue: { label: 'Link issue', category: 'write' },
   unlink_issue: { label: 'Unlink issue', category: 'write' },
+  link_doc: { label: 'Link doc', category: 'write' },
+  unlink_doc: { label: 'Unlink doc', category: 'write' },
   create_issue_from_task: { label: 'Open GitHub issue', category: 'write' },
   delete_task: { label: 'Delete task', category: 'write' },
   // GitHub

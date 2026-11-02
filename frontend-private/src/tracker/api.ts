@@ -2,6 +2,7 @@ import { createContext, useContext } from 'react';
 import { api } from '../api';
 import type {
   CurrentSprint,
+  DriveItem,
   Member,
   MemberStats,
   OverallStats,
@@ -9,6 +10,7 @@ import type {
   SprintInfo,
   SprintPlanning,
   SprintSummary,
+  SlackUser,
   SyncResult,
   Task,
   TaskPriority,
@@ -49,6 +51,7 @@ export const tracker = {
   addMember: (body: Partial<Member>) => api<Member>(`${base}/team`, { method: 'POST', body }),
   updateMember: (id: number, body: Partial<Member>) => api<Member>(`${base}/team/${id}`, { method: 'PATCH', body }),
   deactivateMember: (id: number) => api<void>(`${base}/team/${id}`, { method: 'DELETE' }),
+  slackUsers: () => api<SlackUser[]>(`${base}/slack-users`),
 
   tasks: (params: { archived?: boolean } = {}) => api<Task[]>(`${base}/tasks${params.archived ? '?archived=true' : ''}`),
   task: (id: number) => api<Task>(`${base}/tasks/${id}`),
@@ -73,6 +76,9 @@ export const tracker = {
 
   linkIssue: (id: number, url: string) => api<Task>(`${base}/tasks/${id}/links`, { method: 'POST', body: { url } }),
   unlinkIssue: (id: number, linkId: number) => api<Task>(`${base}/tasks/${id}/links/${linkId}`, { method: 'DELETE' }),
+  linkDoc: (id: number, ref: { url: string } | { file_id: string }) => api<Task>(`${base}/tasks/${id}/docs`, { method: 'POST', body: ref }),
+  unlinkDoc: (id: number, docId: number) => api<Task>(`${base}/tasks/${id}/docs/${docId}`, { method: 'DELETE' }),
+  searchDrive: (q: string) => api<(DriveItem & { path: string })[]>(`/internal/drive/search?${new URLSearchParams({ q })}`),
   createIssue: (id: number, repo: string) => api<Task>(`${base}/tasks/${id}/create-issue`, { method: 'POST', body: { repo } }),
 
   sync: (force = false) => api<SyncResult>(`${base}/sync`, { method: 'POST', body: { force } }),

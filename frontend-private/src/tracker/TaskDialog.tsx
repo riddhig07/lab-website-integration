@@ -6,6 +6,7 @@ import { Markdown } from '../Markdown';
 import type { CurrentSprint, RepoSummary, Subtask, Task, TaskPriority, TaskStatus, TaskType } from '../types';
 import { errorText, NON_CODE_TYPES, PRIORITIES, SCOPES, STATUS_LABELS, STATUSES, TASK_TYPES, tracker, useTracker, type TaskInput } from './api';
 import { SubtaskList, SubtaskProgress } from './SubtaskList';
+import { DocsSection } from './TaskDocs';
 import { Updates } from './Updates';
 
 interface Props {
@@ -293,6 +294,7 @@ export function TaskDialog({ open, onClose, task, defaults, currentSprint, sprin
             Updates {current.updates.length > 0 && <span className="muted small">{current.updates.length}</span>}
           </div>
           <Updates task={current} onChanged={applyServer} />
+          <DocsSection task={current} onChanged={applyServer} />
           {config.github_enabled && <GithubSection task={current} codeTask={!NON_CODE_TYPES.has(taskType)} onChanged={applyServer} />}
         </>
       )}

@@ -61,6 +61,19 @@ export interface TaskLink {
   url: string;
 }
 
+/** A Google Doc / Sheet / Slides deck or other Drive file linked to a task. */
+export interface TaskDoc {
+  id: number;
+  file_id: string;
+  name: string;
+  mime_type: string;
+  url: string;
+  /** Inside the lab's Drive folder (readable from the portal and its assistant). */
+  in_lab: boolean;
+  added_by: string;
+  created_at: string;
+}
+
 export interface LinkedCommit {
   repo: string;
   sha: string;
@@ -98,6 +111,7 @@ export interface Task {
   /** Newest first. */
   updates: TaskUpdate[];
   links: TaskLink[];
+  docs: TaskDoc[];
   /** Newest first. */
   commits: LinkedCommit[];
   commit_authors: { login: string | null; name: string; count: number; merged: number; unmerged: number }[];
@@ -162,6 +176,12 @@ function hydrate(rows: TaskRow[]): Task[] {
       merged: number;
     })[],
   );
+  const docs = groupBy(
+    db.prepare(`SELECT * FROM tracker_docs WHERE task_id IN ${inList} ORDER BY id`).all(...ids) as (Omit<TaskDoc, 'in_lab'> & {
+      task_id: number;
+      in_lab: number;
+    })[],
+  );
   const commits = groupBy(
     db
       .prepare(
@@ -200,6 +220,7 @@ function hydrate(rows: TaskRow[]): Task[] {
       subtask_done_count: subs.filter((s) => s.done).length,
       updates: (updates.get(r.id) ?? []).map(({ task_id: _, ...u }) => u),
       links: (links.get(r.id) ?? []).map(({ task_id: _, merged, ...l }) => ({ ...l, merged: Boolean(merged) })),
+      docs: (docs.get(r.id) ?? []).map(({ task_id: _, in_lab, ...d }) => ({ ...d, in_lab: Boolean(in_lab) })),
       commits: linked,
       commit_authors: [...authors.values()].sort((a, b) => b.count - a.count),
     };

@@ -43,6 +43,7 @@ export function Layout() {
           {defs && navGroup('Public content', defs.filter((d) => d.public))}
           {defs && navGroup('Internal', defs.filter((d) => !d.public))}
           <NavLink to="/drive">Lab Drive</NavLink>
+          <NavLink to="/meetings">Meetings</NavLink>
           <div className="nav-heading">Projects</div>
           <NavLink to="/tracker">Task Board</NavLink>
           <NavLink to="/repos">Repositories</NavLink>

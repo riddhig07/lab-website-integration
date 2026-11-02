@@ -4,6 +4,7 @@ import { githubEnabled } from './auth/github';
 import { config } from './config';
 import { db } from './db';
 import { startJobs } from './jobs';
+import { recoverInterrupted } from './meetings/pipeline';
 import { authRouter } from './routes/auth';
 import { internalRouter } from './routes/internal';
 import { publicRouter } from './routes/public';
@@ -35,6 +36,7 @@ app.listen(config.port, () => {
   console.log(`API listening on http://localhost:${config.port}`);
   console.log(`GitHub sign-in is ${githubEnabled ? 'on' : 'off'}.`);
   startJobs();
+  recoverInterrupted();
   const { n } = db.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number };
   if (n === 0 && !githubEnabled) {
     console.warn('No users exist yet. Run `npm run seed` to create a password admin, or set up GitHub sign-in (see .env.example).');

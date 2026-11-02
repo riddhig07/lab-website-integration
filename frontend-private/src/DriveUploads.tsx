@@ -36,7 +36,7 @@ export function useDriveAccount() {
 export const connectUrl = (from: string) => `/api/auth/google?${new URLSearchParams({ from })}`;
 
 /** Sends a file to a resumable upload session, reporting progress. Resolves with Google's file resource. */
-function put(url: string, file: File, onProgress: (loaded: number) => void): Promise<{ id: string; webViewLink?: string }> {
+export function put(url: string, file: File, onProgress: (loaded: number) => void): Promise<{ id: string; webViewLink?: string }> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('PUT', url);

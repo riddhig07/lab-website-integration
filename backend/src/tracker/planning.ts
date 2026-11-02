@@ -3,7 +3,8 @@
 import { db } from '../db';
 import { memberByLogin } from './people';
 import { ensureCurrentSprint, getSummary, joinSprint, markPlanned, personalSummary, previousSprint, type PersonalSummary, type SprintInfo } from './sprints';
-import { createTask, NON_CODE_TYPES, parseSubtasks, PRIORITIES, TASK_TYPES, TrackerError, type Priority, type SubtaskInput, type TaskType } from './tasks';
+import { notifyAssignments } from '../slack/assignments';
+import { createTask, getTask, NON_CODE_TYPES, parseSubtasks, PRIORITIES, TASK_TYPES, TrackerError, type Priority, type SubtaskInput, type TaskType } from './tasks';
 
 export interface PlanCandidate {
   id: number;
@@ -134,6 +135,8 @@ export function applyPlan(key: string, login: string | null, plan: ReturnType<ty
     );
     markPlanned(key, me);
     db.exec('COMMIT');
+    // New tasks are the planner's own; anyone handed one of their subtasks hears about it.
+    for (const id of created) notifyAssignments(null, getTask(id)!, me);
     return {
       sprint: key,
       carried_over: wantCarry.size,

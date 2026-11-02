@@ -187,7 +187,12 @@ interface GhCommit {
 // ---------------------------------------------------------------------------
 // Repositories
 
-async function installationRepos(): Promise<GhRepo[]> {
+async function installationRepos(fresh = false): Promise<GhRepo[]> {
+  if (fresh) {
+    // Also drop what was derived from the old list (PR counts).
+    cache.delete('repos');
+    cache.delete('open-prs');
+  }
   return cached('repos', LIST_TTL_MS, () =>
     ghPaginate<GhRepo>('/installation/repositories', {}, { key: 'repositories' }),
   );
@@ -203,7 +208,10 @@ export async function orgLogin(): Promise<string> {
 
 /** Throws 404 unless `fullName` (owner/name) is one of the App's repos; returns GitHub's spelling. */
 export async function assertRepo(fullName: string): Promise<GhRepo> {
-  const repo = (await installationRepos()).find((r) => r.full_name.toLowerCase() === fullName.toLowerCase());
+  const find = (repos: GhRepo[]) => repos.find((r) => r.full_name.toLowerCase() === fullName.toLowerCase());
+  // A repo moved into the org after the list was cached would 404 until the
+  // cache expired, so re-read the list once before giving up.
+  const repo = find(await installationRepos()) ?? find(await installationRepos(true));
   if (!repo) throw new GitHubError(404, 'Repository not found');
   return repo;
 }
@@ -242,8 +250,10 @@ async function openPrCounts(): Promise<Map<string, number>> {
   });
 }
 
-export async function listRepos(): Promise<RepoSummary[]> {
-  const [repos, prs] = await Promise.all([installationRepos(), openPrCounts()]);
+/** Every repo the App can see; `fresh` re-reads GitHub instead of the short cache. */
+export async function listRepos(fresh = false): Promise<RepoSummary[]> {
+  const repos = await installationRepos(fresh);
+  const prs = await openPrCounts();
   return repos
     .map((r) => repoSummary(r, prs.get(r.full_name) ?? 0))
     .sort((a, b) => (b.pushed_at ?? '').localeCompare(a.pushed_at ?? ''));

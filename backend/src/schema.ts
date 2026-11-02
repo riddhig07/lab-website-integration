@@ -168,6 +168,21 @@ CREATE TABLE IF NOT EXISTS tracker_links (
 );
 CREATE INDEX IF NOT EXISTS tracker_links_issue ON tracker_links(repo, number);
 
+-- Google Docs, Sheets, Slides and other Drive files linked to a task.
+-- in_lab: inside the lab's Drive folder, so the portal (and its assistant) can read it.
+CREATE TABLE IF NOT EXISTS tracker_docs (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id    INTEGER NOT NULL REFERENCES tracker_tasks(id) ON DELETE CASCADE,
+  file_id    TEXT NOT NULL,
+  name       TEXT NOT NULL,
+  mime_type  TEXT NOT NULL,
+  url        TEXT NOT NULL,
+  in_lab     INTEGER NOT NULL DEFAULT 0,
+  added_by   TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (task_id, file_id)
+);
+
 -- Recent commits across the org's repos (all branches), collected by the sync
 -- job. on_default: reachable from the repo's default branch, i.e. merged.
 CREATE TABLE IF NOT EXISTS gh_commits (
@@ -236,4 +251,29 @@ CREATE TABLE IF NOT EXISTS google_accounts (
   scope         TEXT NOT NULL,
   connected_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
+
+-- In-person meetings recorded in the portal: audio in Drive, then a
+-- speaker-labelled transcript, then Claude's notes as a Google Doc.
+CREATE TABLE IF NOT EXISTS meetings (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title           TEXT NOT NULL,
+  -- uploaded | transcribing | writing | done | failed
+  status          TEXT NOT NULL DEFAULT 'uploaded',
+  error           TEXT,
+  audio_file_id   TEXT NOT NULL,
+  audio_url       TEXT,
+  attendees_json  TEXT NOT NULL DEFAULT '[]',
+  speaker_count   INTEGER,
+  duration_sec    REAL,
+  language        TEXT,
+  -- Kept so a failed notes step can be retried without transcribing again.
+  transcript_json TEXT,
+  doc_id          TEXT,
+  doc_url         TEXT,
+  timings_json    TEXT NOT NULL DEFAULT '{}',
+  created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS meetings_created ON meetings (created_at DESC);
 `;

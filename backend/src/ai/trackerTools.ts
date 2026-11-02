@@ -3,10 +3,12 @@
 // nothing they couldn't do on the board.
 import { db } from '../db';
 import { githubAppEnabled } from '../github/app';
+import { linkDoc, parseDocRef, unlinkDoc } from '../tracker/docs';
 import { createIssueForTask, linkIssue, parseIssueRef, unlinkIssue } from '../tracker/links';
 import { actorOf, listMembers, parseMemberInput, ROLES, updateMember, upsertMember, type MemberInput } from '../tracker/people';
 import { getSummary, listSprints, personalSummary, resolveSprintKey } from '../tracker/sprints';
 import { memberStats, overall } from '../tracker/stats';
+import { notifyAssignments } from '../slack/assignments';
 import { relinkCommits, runSync } from '../tracker/sync';
 import {
   addSubtask,
@@ -111,7 +113,7 @@ const declarations: ToolDeclaration[] = [
   {
     name: 'get_sprint_summary',
     description:
-      'Summary of a weekly sprint (Saturday 11:00 to Saturday 11:00 lab time): committed vs completed, completion %, unfinished work by status, subtasks checked, updates, commits, a per-person breakdown and the task list. Closed sprints return the summary frozen at close.',
+      'Summary of a weekly sprint (Monday 12:30 to Monday 12:30 lab time): committed vs completed, completion %, unfinished work by status, subtasks checked, updates, commits, a per-person breakdown and the task list. Closed sprints return the summary frozen at close.',
     parameters: {
       type: 'object',
       properties: {
@@ -249,6 +251,21 @@ const declarations: ToolDeclaration[] = [
     },
   },
   {
+    name: 'link_doc',
+    description:
+      'Link a Google Doc, Sheet, Slides deck or other Drive file to a task, by its docs.google.com / drive.google.com URL or a Lab Drive file id (from search_drive or list_drive_folder).',
+    parameters: {
+      type: 'object',
+      properties: { task_id: TASK_ID, url: { type: 'string', description: 'The Google Docs / Drive link.' }, file_id: { type: 'string', description: 'A Drive file id, instead of url.' } },
+      required: ['task_id'],
+    },
+  },
+  {
+    name: 'unlink_doc',
+    description: "Remove a linked Google Doc or Drive file from a task (the file itself is not touched). Use the doc's doc_id from get_task.",
+    parameters: { type: 'object', properties: { task_id: TASK_ID, doc_id: { type: 'integer' } }, required: ['task_id', 'doc_id'] },
+  },
+  {
     name: 'create_issue_from_task',
     description: 'Open a GitHub issue in a lab repo from a task (its title, description and assignee) and link it. This posts to GitHub: only when the member asks for it.',
     parameters: {
@@ -282,6 +299,8 @@ function taskView(t: Task) {
     latest_updates: t.updates.slice(0, 3).map((u) => ({ id: u.id, author: u.author, body: u.body, at: u.created_at })),
     update_count: t.updates.length,
     links: t.links.map((l) => ({ link_id: l.id, ref: `${l.repo}#${l.number}`, kind: l.kind, title: l.title, state: l.state, merged: l.merged })),
+    // in_lab docs can be read with read_drive_file(file_id).
+    docs: t.docs.map((d) => ({ doc_id: d.id, file_id: d.file_id, name: d.name, mime_type: d.mime_type, url: d.url, in_lab: d.in_lab })),
     linked_commit_count: t.commits.length,
     created_at: t.created_at,
     updated_at: t.updated_at,
@@ -404,6 +423,7 @@ const handlers: Record<string, Handler> = {
     // Default: the current sprint for assigned work, else the backlog.
     if (args.sprint === undefined) fields.sprint_key = fields.assignee ? resolveSprintKey('current') : null;
     const task = createTask(fields, parseSubtasks(args.subtasks), actorOf(ctx.user));
+    notifyAssignments(null, task, actorOf(ctx.user), true);
     if (!NON_CODE_TYPES.has(task.task_type)) relinkCommits();
     ctx.actions.push({ op: 'create', task_id: task.id, title: task.title });
     return { created: taskView(task) };
@@ -412,7 +432,9 @@ const handlers: Record<string, Handler> = {
   update_task: (args, ctx) => {
     const id = Number(args.task_id);
     const fields = taskFields(args, true);
-    const { task, titleChanged } = patchTask(requireTask(id).id, fields);
+    const before = requireTask(id);
+    const { task, titleChanged } = patchTask(before.id, fields);
+    notifyAssignments(before, task, actorOf(ctx.user), true);
     if (titleChanged && !NON_CODE_TYPES.has(task.task_type)) relinkCommits();
     ctx.actions.push({ op: 'update', task_id: id, title: task.title, detail: Object.keys(fields).join(', ') });
     return { updated: Object.keys(fields), task: taskView(task) };
@@ -420,14 +442,18 @@ const handlers: Record<string, Handler> = {
 
   add_subtasks: (args, ctx) => {
     const id = Number(args.task_id);
-    let task = requireTask(id);
+    const before = requireTask(id);
+    let task = before;
     for (const s of parseSubtasks(args.subtasks)) task = addSubtask(id, s);
+    notifyAssignments(before, task, actorOf(ctx.user), true);
     ctx.actions.push({ op: 'update', task_id: id, title: task.title, detail: 'subtasks' });
     return { task: taskView(task) };
   },
 
   assign_subtask: (args, ctx) => {
-    const task = patchSubtask(Number(args.task_id), Number(args.subtask_id), { assignee: args.assignee ?? null }, actorOf(ctx.user));
+    const before = requireTask(Number(args.task_id));
+    const task = patchSubtask(before.id, Number(args.subtask_id), { assignee: args.assignee ?? null }, actorOf(ctx.user));
+    notifyAssignments(before, task, actorOf(ctx.user), true);
     ctx.actions.push({ op: 'update', task_id: task.id, title: task.title, detail: 'subtask assignee' });
     return { task: taskView(task) };
   },
@@ -477,6 +503,23 @@ const handlers: Record<string, Handler> = {
     const task = unlinkIssue(current.id, link.id);
     ctx.actions.push({ op: 'update', task_id: task.id, title: task.title, detail: 'unlinked issue' });
     return { unlinked: `${link.repo}#${link.number}`, task: taskView(task) };
+  },
+
+  link_doc: async (args, ctx) => {
+    const ref = parseDocRef(args.file_id ? { file_id: args.file_id } : { url: args.url });
+    const task = await linkDoc(Number(args.task_id), ref, ctx.user.id, actorOf(ctx.user));
+    const doc = task.docs.find((d) => d.file_id === ref.file_id)!;
+    ctx.actions.push({ op: 'update', task_id: task.id, title: task.title, detail: 'linked doc' });
+    return { linked: doc.name, readable_with_read_drive_file: doc.in_lab, task: taskView(task) };
+  },
+
+  unlink_doc: (args, ctx) => {
+    const current = requireTask(Number(args.task_id));
+    const doc = current.docs.find((d) => d.id === Number(args.doc_id));
+    if (!doc) return { error: `${current.ref} has no linked doc ${args.doc_id}` };
+    const task = unlinkDoc(current.id, doc.id);
+    ctx.actions.push({ op: 'update', task_id: task.id, title: task.title, detail: 'unlinked doc' });
+    return { unlinked: doc.name, task: taskView(task) };
   },
 
   create_issue_from_task: async (args, ctx) => {
@@ -538,7 +581,10 @@ function summarize(name: string, r: ToolResult): string | undefined {
     case 'delete_update':
       return `deleted from ${r.deleted_from}`;
     case 'unlink_issue':
+    case 'unlink_doc':
       return `unlinked ${r.unlinked}`;
+    case 'link_doc':
+      return `linked "${r.linked}"`;
     case 'create_issue_from_task':
       return `opened ${(r.issue as { ref: string } | null)?.ref ?? 'issue'}`;
     case 'delete_task':
@@ -566,7 +612,9 @@ function view(name: string, r: ToolResult): ToolView | null | undefined {
     case 'set_subtask_done':
     case 'delete_subtask':
     case 'link_issue':
-    case 'unlink_issue': {
+    case 'unlink_issue':
+    case 'link_doc':
+    case 'unlink_doc': {
       const t = (r.created ?? r.task) as TaskViewRow | undefined;
       return t && typeof t === 'object' ? { kind: 'tasks', total: 1, items: [taskItem(t)] } : null;
     }
